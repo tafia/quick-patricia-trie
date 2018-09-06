@@ -1,0 +1,12 @@
+[package]
+name = "quick-patricia-trie"
+version = "0.1.0"
+authors = ["Johann Tuffe <tafia973@gmail.com>"]
+
+[dependencies]
+log = "0.4.4"
+rlp = "0.2.4"
+keccak-hash = "0.1.2"
+
+[dev-dependencies]
+env_logger = "0.5.13"
