@@ -2,23 +2,25 @@ use keccak_hash::{keccak, H256};
 use node::Node;
 use std::collections::HashMap;
 use storage::Storage;
+use plain_hasher::PlainHasher;
+use std::hash;
 
 /// A Merkle Storage where key = sha3(rlp(value))
-pub struct MerkelStorage<T, V> {
+pub struct MerkleStorage<T, V> {
     root: H256,
-    db: HashMap<H256, Node<T, H256, V>>,
+    db: HashMap<H256, Node<T, H256, V>, hash::BuildHasherDefault<PlainHasher>>,
 }
 
-impl<T, V> MerkelStorage<T, V> {
+impl<T, V> MerkleStorage<T, V> {
     pub fn new() -> Self {
-        MerkelStorage {
+        MerkleStorage {
             root: keccak(::rlp::NULL_RLP),
-            db: HashMap::new(),
+            db: HashMap::default(),
         }
     }
 }
 
-impl<T, V> Storage for MerkelStorage<T, V>
+impl<T, V> Storage for MerkleStorage<T, V>
 where
     T: AsRef<[u8]>,
     V: AsRef<[u8]>,
@@ -47,6 +49,6 @@ where
         key
     }
     fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
-        self.db.remove(key)
+        self.db.insert(key.clone(), Node::Empty)
     }
 }

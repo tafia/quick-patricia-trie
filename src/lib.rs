@@ -2,6 +2,7 @@
 extern crate log;
 extern crate keccak_hash;
 extern crate rlp;
+extern crate plain_hasher;
 
 #[cfg(test)]
 extern crate env_logger;

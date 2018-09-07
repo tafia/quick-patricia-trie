@@ -1,4 +1,4 @@
-pub mod merkel;
+pub mod merkle;
 
 use std::mem;
 

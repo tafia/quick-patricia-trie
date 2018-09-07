@@ -33,8 +33,9 @@ impl<S> Trie<S> {
 impl<S, T, K, V> Trie<S>
 where
     S: Storage<Key = K, Value = Node<T, K, V>>,
-    T: AsRef<[u8]>,
+    T: AsRef<[u8]> + ::std::fmt::Debug,
     K: Clone + PartialEq,
+    V: ::std::fmt::Debug,
 {
     /// Get the item corresponding to that nibble
     pub fn get<'a, Q>(&'a self, path: Nibble<Q>) -> Option<&'a V>
@@ -118,6 +119,7 @@ where
     where
         Nibble<T>: From<Nibble<Vec<u8>>>,
     {
+        debug!("inserting ({:?}, {:?})", path, value);
         enum Action {
             InsertLeaf, // if key not found of Node = Empty
             BranchValue,
@@ -382,7 +384,9 @@ where
 mod test {
 
     use super::*;
+    use storage::{Storage, merkle::MerkleStorage};
     use std::sync::{Once, ONCE_INIT};
+    use std::fmt::Debug;
 
     static INIT: Once = ONCE_INIT;
 
@@ -395,18 +399,60 @@ mod test {
         });
     }
 
-    fn node_eq(trie: &Trie<VecStorage>, kv: Vec<(&str, &str)>) {
+    fn node_eq<T, K, V, S>(trie: &Trie<S>, kv: Vec<(&str, &str)>)
+        where
+            S: Storage<Key = K, Value = Node<T, K, V>>,
+            T: AsRef<[u8]> + Debug,
+            K: Clone + PartialEq,
+            V: AsRef<[u8]> + Debug,
+    {
         for (k, val) in kv {
             let v = trie.get(Nibble::from_slice(k.as_bytes(), 0));
-            assert_eq!(v.map(|v| &**v), Some(val.as_bytes()));
+            assert_eq!(v.map(|v| v.as_ref()), Some(val.as_bytes()));
         }
     }
 
     #[test]
-    fn test_vec_opt() {
+    fn test_vec() {
         setup();
 
         let storage: VecStorage = Vec::new();
+        let mut trie = Trie::new(storage);
+
+        trie.insert(
+            Nibble::from_slice(b"test node", 0).to_vec(),
+            "my node".as_bytes().to_vec(),
+        );
+        node_eq(&trie, vec![("test node", "my node")]);
+
+        trie.insert(
+            Nibble::from_slice(b"test", 0).to_vec(),
+            "my node short".as_bytes().to_vec(),
+        );
+        node_eq(
+            &trie,
+            vec![("test node", "my node"), ("test", "my node short")],
+        );
+
+        trie.insert(
+            Nibble::from_slice(b"test node 3", 0).to_vec(),
+            "my node long".as_bytes().to_vec(),
+        );
+        node_eq(
+            &trie,
+            vec![
+                ("test node", "my node"),
+                ("test", "my node short"),
+                ("test node 3", "my node long"),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_merkle() {
+        setup();
+
+        let storage = MerkleStorage::new();
         let mut trie = Trie::new(storage);
 
         trie.insert(
