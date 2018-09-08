@@ -9,9 +9,9 @@ use rlp::RlpStream;
 #[derive(Debug)]
 pub enum Node<T, K, V> {
     Empty,
-    Branch([Option<K>; 16], Option<V>),
-    Leaf(Nibble<T>, V),
-    Extension(Nibble<T>, K),
+    Branch(Branch<K, V>),
+    Leaf(Leaf<T, V>),
+    Extension(Extension<T, K>),
 }
 
 impl<T, K, V> Default for Node<T, K, V> {
@@ -20,57 +20,82 @@ impl<T, K, V> Default for Node<T, K, V> {
     }
 }
 
+#[derive(Debug)]
+pub struct Branch<K, V> {
+    pub keys: [Option<K>; 16],
+    pub value: Option<V>,
+}
+
+impl<K: AsRef<[u8]>, V: AsRef<[u8]>> Branch<K, V> {
+    pub fn rlp_encoded(&self) -> Vec<u8> {
+        let mut stream = RlpStream::new_list(17);
+        for k in self.keys.iter() {
+            if let Some(k) = k {
+                stream.append_raw(&k.as_ref(), 1);
+            } else {
+                stream.append_empty_data();
+            }
+        }
+        if let Some(ref k) = self.value {
+            stream.append(&k.as_ref());
+        } else {
+            stream.append_empty_data();
+        }
+        stream.out()
+    }
+}
+
+#[derive(Debug)]
+pub struct Leaf<T, V> {
+    pub nibble: Nibble<T>,
+    pub value: V,
+}
+
+impl<T: AsRef<[u8]>, V: AsRef<[u8]>> Leaf<T, V> {
+    pub fn rlp_encoded(&self) -> Vec<u8> {
+        let mut stream = RlpStream::new();
+        let buffer = self.nibble.as_slice().encoded(true);
+        stream
+            .begin_list(2)
+            .append(&buffer)
+            .append(&self.value.as_ref());
+        stream.out()
+    }
+}
+
+#[derive(Debug)]
+pub struct Extension<T, K> {
+    pub nibble: Nibble<T>,
+    pub key: K,
+}
+
+impl<T: AsRef<[u8]>, K: AsRef<[u8]>> Extension<T, K> {
+    pub fn rlp_encoded(&self) -> Vec<u8> {
+        let mut stream = RlpStream::new();
+        let buffer = self.nibble.as_slice().encoded(false);
+        stream
+            .begin_list(2)
+            .append(&buffer)
+            .append_raw(&self.key.as_ref(), 1);
+        stream.out()
+    }
+}
+
 impl<T, K, V> Node<T, K, V>
 where
     T: AsRef<[u8]>,
-    // already encoded key
     K: AsRef<[u8]>,
     V: AsRef<[u8]>,
 {
     pub fn rlp_encoded(&self) -> Vec<u8> {
         match self {
-            Node::Leaf(nibble, value) => {
-                let mut stream = RlpStream::new_list(2);
-                let mut buffer = Vec::new();
-                nibble.as_slice().encode(true, &mut buffer);
-                stream.append(&buffer);
-                stream.append(&value.as_ref());
-                stream.drain().into_vec()
-            }
-            Node::Extension(nibble, key) => {
-                let mut stream = RlpStream::new_list(2);
-                let mut buffer = Vec::new();
-                nibble.as_slice().encode(false, &mut buffer);
-                stream.append(&buffer);
-                stream.append_raw(&key.as_ref(), 1);
-                stream.drain().into_vec()
-            }
-            Node::Branch(keys, value) => {
-                let mut stream = RlpStream::new_list(17);
-                for k in keys {
-                    match k.as_ref() {
-                        Some(k) => {
-                            stream.append_raw(&k.as_ref(), 1);
-                        }
-                        None => {
-                            stream.append_empty_data();
-                        }
-                    }
-                }
-                match value.as_ref() {
-                    Some(k) => {
-                        stream.append(&k.as_ref());
-                    }
-                    None => {
-                        stream.append_empty_data();
-                    }
-                }
-                stream.drain().into_vec()
-            }
+            Node::Leaf(leaf) => leaf.rlp_encoded(),
+            Node::Extension(extension) => extension.rlp_encoded(),
+            Node::Branch(branch) => branch.rlp_encoded(),
             Node::Empty => {
                 let mut stream = RlpStream::new();
                 stream.append_empty_data();
-                stream.drain().into_vec()
+                stream.out()
             }
         }
     }

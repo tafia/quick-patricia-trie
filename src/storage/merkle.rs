@@ -1,54 +1,76 @@
-use keccak_hash::{keccak, H256};
-use node::Node;
-use std::collections::HashMap;
-use storage::Storage;
+use keccak_hash::{keccak, H256, KECCAK_NULL_RLP};
+use node::{Branch, Extension, Leaf, Node};
 use plain_hasher::PlainHasher;
+use std::collections::HashMap;
 use std::hash;
+use storage::Storage;
 
 /// A Merkle Storage where key = sha3(rlp(value))
+#[derive(Debug)]
 pub struct MerkleStorage<T, V> {
-    root: H256,
     db: HashMap<H256, Node<T, H256, V>, hash::BuildHasherDefault<PlainHasher>>,
 }
 
 impl<T, V> MerkleStorage<T, V> {
     pub fn new() -> Self {
         MerkleStorage {
-            root: keccak(::rlp::NULL_RLP),
             db: HashMap::default(),
         }
     }
 }
 
-impl<T, V> Storage for MerkleStorage<T, V>
+impl<T, V> Storage<T, H256, V> for MerkleStorage<T, V>
 where
     T: AsRef<[u8]>,
     V: AsRef<[u8]>,
 {
-    type Key = H256;
-    type Value = Node<T, H256, V>;
-
-    fn root(&self) -> H256 {
-        self.root.clone()
+    fn root() -> H256 {
+        KECCAK_NULL_RLP
     }
 
-    fn get<'a>(&'a self, key: &Self::Key) -> Option<&'a Self::Value> {
+    fn get<'a>(&'a self, key: &H256) -> Option<&'a Node<T, H256, V>> {
         self.db.get(key)
     }
-
-    fn get_mut<'a>(&'a mut self, key: &Self::Key) -> Option<&'a mut Self::Value> {
+    fn get_mut<'a>(&'a mut self, key: &H256) -> Option<&'a mut Node<T, H256, V>> {
         self.db.get_mut(key)
     }
-    fn insert(&mut self, key: Self::Key, value: Self::Value) -> Option<Self::Value> {
+
+    #[inline]
+    fn insert_node(&mut self, key: H256, value: Node<T, H256, V>) -> Option<Node<T, H256, V>> {
         self.db.insert(key, value)
     }
-    fn push(&mut self, value: Self::Value) -> Self::Key {
+
+    #[inline]
+    fn push_node(&mut self, value: Node<T, H256, V>) -> H256 {
         let encoded_value = value.rlp_encoded();
         let key = keccak(encoded_value);
         self.db.insert(key.clone(), value);
         key
     }
-    fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
-        self.db.insert(key.clone(), Node::Empty)
+    fn push_empty(&mut self) -> H256 {
+        // do nothing and return root
+        KECCAK_NULL_RLP
+    }
+    fn push_leaf(&mut self, leaf: Leaf<T, V>) -> H256 {
+        let encoded_value = leaf.rlp_encoded();
+        let key = keccak(encoded_value);
+        self.db.insert(key.clone(), Node::Leaf(leaf));
+        key
+    }
+    fn push_branch(&mut self, branch: Branch<H256, V>) -> H256 {
+        let encoded_value = branch.rlp_encoded();
+        let key = keccak(encoded_value);
+        self.db.insert(key.clone(), Node::Branch(branch));
+        key
+    }
+    fn push_extension(&mut self, extension: Extension<T, H256>) -> H256 {
+        let encoded_value = extension.rlp_encoded();
+        let key = keccak(encoded_value);
+        self.db.insert(key.clone(), Node::Extension(extension));
+        key
+    }
+    #[inline]
+    fn remove(&mut self, key: &H256) -> Option<Node<T, H256, V>> {
+        self.insert_empty(*key)
     }
 }

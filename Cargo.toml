@@ -5,7 +5,8 @@ authors = ["Johann Tuffe <tafia973@gmail.com>"]
 
 [dependencies]
 log = "0.4.4"
-rlp = "0.2.4"
+rlp = { path = "../parity-common/rlp" }
+# rlp = "0.2.4"
 keccak-hash = "0.1.2"
 plain_hasher = "0.2.0"
 

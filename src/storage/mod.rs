@@ -1,55 +1,80 @@
 pub mod merkle;
 
+use node::{Branch, Extension, Leaf, Node};
 use std::mem;
 
 /// A trait to handle storage operations
-pub trait Storage {
-    /// Storage key
-    type Key;
-    /// Storage value
-    type Value;
-    fn root(&self) -> Self::Key;
-    /// Get item at Key
-    fn get<'a>(&'a self, key: &Self::Key) -> Option<&'a Self::Value>;
-    /// Get mutable item at Key
-    fn get_mut<'a>(&'a mut self, key: &Self::Key) -> Option<&'a mut Self::Value>;
-    /// Insert item at key
-    fn insert(&mut self, key: Self::Key, value: Self::Value) -> Option<Self::Value>;
-    /// Push a new item and returns the new key
-    fn push(&mut self, value: Self::Value) -> Self::Key;
-    /// Remove item at key
-    fn remove(&mut self, key: &Self::Key) -> Option<Self::Value>;
+pub trait Storage<T, K, V> {
+    fn root() -> K;
+
+    fn get<'a>(&'a self, key: &K) -> Option<&'a Node<T, K, V>>;
+    fn get_mut<'a>(&'a mut self, key: &K) -> Option<&'a mut Node<T, K, V>>;
+    fn insert_node(&mut self, key: K, node: Node<T, K, V>) -> Option<Node<T, K, V>>;
+    fn push_node(&mut self, node: Node<T, K, V>) -> K;
+    fn remove(&mut self, key: &K) -> Option<Node<T, K, V>>;
+
+    fn insert_empty(&mut self, key: K) -> Option<Node<T, K, V>> {
+        self.insert_node(key, Node::Empty)
+    }
+    fn insert_leaf(&mut self, key: K, leaf: Leaf<T, V>) -> Option<Node<T, K, V>> {
+        self.insert_node(key, Node::Leaf(leaf))
+    }
+    fn insert_branch(&mut self, key: K, branch: Branch<K, V>) -> Option<Node<T, K, V>> {
+        self.insert_node(key, Node::Branch(branch))
+    }
+    fn insert_extension(&mut self, key: K, extension: Extension<T, K>) -> Option<Node<T, K, V>> {
+        self.insert_node(key, Node::Extension(extension))
+    }
+    fn push_empty(&mut self) -> K {
+        self.push_node(Node::Empty)
+    }
+    fn push_leaf(&mut self, leaf: Leaf<T, V>) -> K {
+        self.push_node(Node::Leaf(leaf))
+    }
+    fn push_branch(&mut self, branch: Branch<K, V>) -> K {
+        self.push_node(Node::Branch(branch))
+    }
+    fn push_extension(&mut self, extension: Extension<T, K>) -> K {
+        self.push_node(Node::Extension(extension))
+    }
 }
 
+pub type VecStorage<T, V> = Vec<Node<T, usize, V>>;
+
 // A basic `Vec<Option<T>>` storage, for testing purpose
-impl<T> Storage for Vec<Option<T>> {
-    type Key = usize;
-    type Value = T;
-    fn root(&self) -> Self::Key {
+impl<T, V> Storage<T, usize, V> for VecStorage<T, V> {
+    fn root() -> usize {
         0
     }
-    fn get<'a>(&'a self, key: &Self::Key) -> Option<&'a Self::Value> {
-        self.as_slice().get(*key).and_then(|v| v.as_ref())
+    fn get<'a>(&'a self, key: &usize) -> Option<&'a Node<T, usize, V>> {
+        (&**self).get(*key)
     }
-    fn get_mut<'a>(&'a mut self, key: &Self::Key) -> Option<&'a mut Self::Value> {
-        self.as_mut_slice().get_mut(*key).and_then(|v| v.as_mut())
+    fn get_mut<'a>(&'a mut self, key: &usize) -> Option<&'a mut Node<T, usize, V>> {
+        (&mut **self).get_mut(*key)
     }
-    fn insert(&mut self, key: Self::Key, value: Self::Value) -> Option<Self::Value> {
+    fn insert_node(&mut self, key: usize, value: Node<T, usize, V>) -> Option<Node<T, usize, V>> {
         if key < self.len() {
-            return mem::replace(&mut self[key], Some(value));
+            return Some(mem::replace(&mut self[key], value));
         }
         if key > self.len() {
             let len = key - self.len() - 1;
-            self.extend((0..len).map(|_| None));
+            self.extend((0..len).map(|_| Node::Empty));
         }
-        self.push(Some(value));
+        self.push(value);
         None
     }
-    fn push(&mut self, value: Self::Value) -> Self::Key {
-        self.push(Some(value));
+    fn insert_extension(
+        &mut self,
+        key: usize,
+        extension: Extension<T, usize>,
+    ) -> Option<Node<T, usize, V>> {
+        self.insert_node(key, Node::Extension(extension))
+    }
+    fn push_node(&mut self, node: Node<T, usize, V>) -> usize {
+        self.push(node);
         self.len() - 1
     }
-    fn remove(&mut self, key: &Self::Key) -> Option<Self::Value> {
-        mem::replace(&mut self[*key], None)
+    fn remove(&mut self, key: &usize) -> Option<Node<T, usize, V>> {
+        self.insert_node(*key, Node::Empty)
     }
 }
