@@ -1,5 +1,3 @@
-use std::iter::once;
-
 #[derive(Debug)]
 pub enum Nibble<T> {
     Even(T),
@@ -7,27 +5,56 @@ pub enum Nibble<T> {
 }
 
 impl<T: AsRef<[u8]>> Nibble<T> {
+    #[inline]
     pub fn len(&self) -> usize {
         match self {
             Nibble::Even(ref s) => s.as_ref().len() * 2,
             Nibble::Left(_, ref s) => 1 + s.as_ref().len() * 2,
         }
     }
+    #[inline]
     pub fn as_slice<'a>(&'a self) -> Nibble<&'a [u8]> {
         match self {
             Nibble::Even(ref u) => Nibble::Even(u.as_ref()),
             Nibble::Left(l, ref u) => Nibble::Left(*l, u.as_ref()),
         }
     }
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = u8> + 'a {
-        let (l, u) = match self {
-            Nibble::Even(ref u) => (None, u.as_ref()),
-            Nibble::Left(ref l, ref u) => (Some(*l), u.as_ref()),
-        };
-        l.into_iter()
-            .chain(u.iter().flat_map(|b| once(*b >> 4).chain(once(*b & 0x0F))))
+    pub fn iter<'a>(&'a self) -> NibbleIter<'a> {
+        match self {
+            Nibble::Even(ref u) => NibbleIter {
+                b: None,
+                iter: u.as_ref().iter(),
+            },
+            Nibble::Left(ref l, ref u) => NibbleIter {
+                b: Some(*l),
+                iter: u.as_ref().iter(),
+            },
+        }
     }
 }
+
+pub struct NibbleIter<'a> {
+    b: Option<u8>,
+    iter: ::std::slice::Iter<'a, u8>,
+}
+
+impl<'a> Iterator for NibbleIter<'a> {
+    type Item = u8;
+    fn next(&mut self) -> Option<u8> {
+        self.b.take().or_else(|| {
+            self.iter.next().and_then(|b| {
+                self.b = Some(b & 0x0F);
+                Some(b >> 4)
+            })
+        })
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.iter.size_hint().0 * 2 + if self.b.is_some() { 1 } else { 0 };
+        (len, Some(len))
+    }
+}
+
+impl<'a> ExactSizeIterator for NibbleIter<'a> {}
 
 impl<U, V> PartialEq<Nibble<U>> for Nibble<V>
 where
@@ -50,6 +77,7 @@ impl<T: Default> Default for Nibble<T> {
 }
 
 impl<'a> Nibble<&'a [u8]> {
+    #[inline]
     pub fn from_slice(bytes: &'a [u8], start: usize) -> Self {
         if start % 2 == 0 {
             Nibble::Even(&bytes[start / 2..])
@@ -58,6 +86,7 @@ impl<'a> Nibble<&'a [u8]> {
         }
     }
 
+    #[inline]
     pub fn to_vec(&self) -> Nibble<Vec<u8>> {
         match self {
             Nibble::Even(s) => Nibble::Even(s.to_vec()),
@@ -80,40 +109,25 @@ impl<'a> Nibble<&'a [u8]> {
 
     pub fn split_start(&self, start: &Self) -> Option<Self> {
         match (self, start) {
-            (Nibble::Even(u), Nibble::Even(v)) => {
-                if u.starts_with(v) {
-                    return Some(Nibble::Even(&u[v.len()..]));
+            (Nibble::Even(u), Nibble::Even(v)) if u.len() >= v.len() && u.starts_with(v) => {
+                return Some(Nibble::Even(&u[v.len()..]));
+            }
+            (Nibble::Left(lu, u), Nibble::Left(lv, v))
+                if u.len() >= v.len() && lu == lv && u.starts_with(v) =>
+            {
+                return Some(Nibble::Even(&u[v.len()..]));
+            }
+            (Nibble::Even(u), Nibble::Left(_l, v)) if u.len() > v.len() => {
+                if self.iter().zip(start.iter()).all(|(u, v)| u == v) {
+                    return Some(Nibble::Left(u[v.len()] & 0x0F, &u[v.len() + 1..]));
                 }
             }
-            (Nibble::Even(u), Nibble::Left(l, v)) => {
-                if u.len() > v.len()
-                    && once(*l)
-                        .chain(v.iter().flat_map(|b| once(*b >> 4).chain(once(*b & 0x0F))))
-                        .zip(u.iter().flat_map(|b| once(*b >> 4).chain(once(*b & 0x0F))))
-                        .all(|(u, v)| u == v)
-                {
-                    return Some(Nibble::Left(u[v.len() - 1] & 0x0F, &v[v.len() + 1..]));
+            (Nibble::Left(_l, u), Nibble::Even(v)) if u.len() + 1 >= v.len() => {
+                if self.iter().zip(start.iter()).all(|(u, v)| u == v) {
+                    return Some(Nibble::Left(u[v.len() - 1] & 0x0F, &u[v.len()..]));
                 }
             }
-            (Nibble::Left(lu, u), Nibble::Left(lv, v)) => {
-                if lu == lv && u.starts_with(v) {
-                    return Some(Nibble::Even(&u[v.len()..]));
-                }
-            }
-
-            (Nibble::Left(l, u), Nibble::Even(v)) => {
-                if u.len() >= v.len()
-                    && v.iter()
-                        .flat_map(|b| once(*b >> 4).chain(once(*b & 0x0F)))
-                        .zip(
-                            once(*l)
-                                .chain(u.iter().flat_map(|b| once(*b >> 4).chain(once(*b & 0x0F)))),
-                        )
-                        .all(|(u, v)| u == v)
-                {
-                    return Some(Nibble::Left(u[v.len() - 1] & 0x0F, &v[v.len() + 1..]));
-                }
-            }
+            _ => (),
         }
         None
     }
@@ -162,11 +176,28 @@ impl<'a> Nibble<&'a [u8]> {
         }
     }
 
+    pub fn encoded(&self, is_leaf: bool) -> Vec<u8> {
+        match self {
+            Nibble::Even(ref u) => {
+                let mut buf = Vec::with_capacity(u.len() + 1);
+                buf.push(if is_leaf { 0x20 } else { 0 });
+                buf.extend_from_slice(u);
+                buf
+            }
+            Nibble::Left(l, ref u) => {
+                let mut buf = Vec::with_capacity(u.len() + 1);
+                buf.push(l | if is_leaf { 0x30 } else { 0x10 });
+                buf.extend_from_slice(u);
+                buf
+            }
+        }
+    }
+
     /// Decode slice, returns a Nibble and a flag if it is a leaf or not
     pub fn decode(data: &'a [u8]) -> (bool, Self) {
         assert!(!data.is_empty(), "Cannot decode empty slice");
         match data[0] & 0xF0 {
-            0 => (false, Nibble::Even(&data[1..])),
+            0x00 => (false, Nibble::Even(&data[1..])),
             0x10 => (false, Nibble::Left(data[0] & 0xF0, &data[1..])),
             0x20 => (true, Nibble::Even(&data[1..])),
             0x30 => (true, Nibble::Left(data[0] & 0xF0, &data[1..])),
