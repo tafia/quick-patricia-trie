@@ -1,76 +1,71 @@
-use keccak_hash::{keccak, H256, KECCAK_NULL_RLP};
+use keccak_hash::{keccak, KECCAK_NULL_RLP};
 use node::{Branch, Extension, Leaf, Node};
-use plain_hasher::PlainHasher;
+//use plain_hasher::PlainHasher;
 use std::collections::HashMap;
-use std::hash;
-use storage::Storage;
+//use std::hash;
+use storage::Arena;
 
 /// A Merkle Storage where key = sha3(rlp(value))
 #[derive(Debug)]
-pub struct MerkleStorage<T, V> {
-    db: HashMap<H256, Node<T, H256, V>, hash::BuildHasherDefault<PlainHasher>>,
+pub struct MerkleStorage {
+    db: HashMap<usize, Node>,
+    // db: HashMap<usize, Node, hash::BuildHasherDefault<PlainHasher>>,
+    root: usize,
 }
 
-impl<T, V> MerkleStorage<T, V> {
-    pub fn new() -> Self {
+impl MerkleStorage {
+    pub fn new(arena: &mut Arena) -> Self {
+        let idx = arena.push(KECCAK_NULL_RLP.as_ref());
         MerkleStorage {
             db: HashMap::default(),
+            root: idx,
         }
     }
-}
 
-impl<T, V> Storage<T, H256, V> for MerkleStorage<T, V>
-where
-    T: AsRef<[u8]>,
-    V: AsRef<[u8]>,
-{
-    fn root() -> H256 {
-        KECCAK_NULL_RLP
+    pub fn root(&self) -> usize {
+        self.root
     }
 
-    fn get<'a>(&'a self, key: &H256) -> Option<&'a Node<T, H256, V>> {
+    pub fn get<'a>(&'a self, key: &usize) -> Option<&'a Node> {
         self.db.get(key)
     }
-    fn get_mut<'a>(&'a mut self, key: &H256) -> Option<&'a mut Node<T, H256, V>> {
+    pub fn get_mut<'a>(&'a mut self, key: &usize) -> Option<&'a mut Node> {
         self.db.get_mut(key)
     }
 
     #[inline]
-    fn insert_node(&mut self, key: H256, value: Node<T, H256, V>) -> Option<Node<T, H256, V>> {
+    pub fn insert_node(&mut self, key: usize, value: Node) -> Option<Node> {
+        debug!("inserting node {}", key);
         self.db.insert(key, value)
     }
 
-    #[inline]
-    fn push_node(&mut self, value: Node<T, H256, V>) -> H256 {
-        let encoded_value = value.rlp_encoded();
+    pub fn push_leaf(&mut self, leaf: Leaf, arena: &mut Arena) -> usize {
+        let encoded_value = leaf.rlp_encoded(arena);
         let key = keccak(encoded_value);
-        self.db.insert(key.clone(), value);
-        key
+        let idx_key = arena.push(key.as_ref());
+        debug!("pushing leaf {}", idx_key);
+        self.db.insert(idx_key, Node::Leaf(leaf));
+        idx_key
     }
-    fn push_empty(&mut self) -> H256 {
-        // do nothing and return root
-        KECCAK_NULL_RLP
-    }
-    fn push_leaf(&mut self, leaf: Leaf<T, V>) -> H256 {
-        let encoded_value = leaf.rlp_encoded();
+    pub fn push_branch(&mut self, branch: Branch, arena: &mut Arena) -> usize {
+        let encoded_value = branch.rlp_encoded(arena);
         let key = keccak(encoded_value);
-        self.db.insert(key.clone(), Node::Leaf(leaf));
-        key
+        let idx_key = arena.push(key.as_ref());
+        debug!("pushing branch {}", idx_key);
+        self.db.insert(idx_key, Node::Branch(branch));
+        idx_key
     }
-    fn push_branch(&mut self, branch: Branch<H256, V>) -> H256 {
-        let encoded_value = branch.rlp_encoded();
+    pub fn push_extension(&mut self, extension: Extension, arena: &mut Arena) -> usize {
+        let encoded_value = extension.rlp_encoded(arena);
         let key = keccak(encoded_value);
-        self.db.insert(key.clone(), Node::Branch(branch));
-        key
-    }
-    fn push_extension(&mut self, extension: Extension<T, H256>) -> H256 {
-        let encoded_value = extension.rlp_encoded();
-        let key = keccak(encoded_value);
-        self.db.insert(key.clone(), Node::Extension(extension));
-        key
+        let idx_key = arena.push(key.as_ref());
+        debug!("pushing extension {}", idx_key);
+        self.db.insert(idx_key, Node::Extension(extension));
+        idx_key
     }
     #[inline]
-    fn remove(&mut self, key: &H256) -> Option<Node<T, H256, V>> {
-        self.insert_empty(*key)
+    pub fn remove(&mut self, key: &usize) -> Option<Node> {
+        debug!("removing node {}", key);
+        self.db.insert(*key, Node::Empty)
     }
 }

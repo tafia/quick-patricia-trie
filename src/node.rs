@@ -1,6 +1,6 @@
 use nibbles::Nibble;
 use rlp::RlpStream;
-use std::mem;
+use storage::Arena;
 
 /// A trie `Node`
 ///
@@ -8,159 +8,105 @@ use std::mem;
 /// - `K` is the database key
 /// - `V` is the database value
 #[derive(Debug)]
-pub enum Node<T, K, V> {
+pub enum Node {
     Empty,
-    Branch(Branch<K, V>),
-    Leaf(Leaf<T, V>),
-    Extension(Extension<T, K>),
+    Branch(Branch),
+    Leaf(Leaf),
+    Extension(Extension),
 }
 
-impl<T, K, V> Default for Node<T, K, V> {
+impl Default for Node {
     fn default() -> Self {
         Node::Empty
     }
 }
 
 #[derive(Debug)]
-pub struct Branch<K, V> {
-    keys: [Option<K>; 16],
-    value: Option<V>,
+pub struct Branch {
+    pub keys: [Option<usize>; 16],
+    pub value: Option<usize>,
 }
 
-impl<K, V> Branch<K, V> {
+impl Branch {
     pub fn new() -> Self {
         let keys = [
             None, None, None, None, None, None, None, None, None, None, None, None, None, None,
             None, None,
         ];
-
-        Branch { value: None, keys }
+        Branch { keys, value: None }
     }
-    pub fn get(&self, i: u8) -> Option<&K> {
-        self.keys.get(i as usize).and_then(|v| v.as_ref())
-    }
-    pub fn set(&mut self, i: u8, value: Option<K>) {
-        self.keys.get_mut(i as usize).map(|v| *v = value);
-    }
-    pub fn get_value(&self) -> Option<&V> {
-        self.value.as_ref()
-    }
-    pub fn set_value(&mut self, value: Option<V>) {
-        self.value = value;
-    }
-    pub fn take_value(&mut self) -> Option<V> {
-        self.value.take()
-    }
-}
-
-impl<K: AsRef<[u8]>, V: AsRef<[u8]>> Branch<K, V> {
-    pub fn rlp_encoded(&self) -> Vec<u8> {
+    pub fn rlp_encoded(&self, arena: &Arena) -> Vec<u8> {
         let mut stream = RlpStream::new_list(17);
-        for k in self.keys.iter() {
-            if let Some(k) = k {
-                stream.append_raw(&k.as_ref(), 1);
-            } else {
-                stream.append_empty_data();
+        for k in self.keys.iter().cloned() {
+            match k {
+                None => {
+                    stream.append_empty_data();
+                }
+                Some(i) => {
+                    stream.append_raw(&arena.get(i), 1);
+                }
             }
         }
-        if let Some(ref k) = self.value {
-            stream.append(&k.as_ref());
-        } else {
-            stream.append_empty_data();
+        match self.value.as_ref() {
+            None => {
+                stream.append_empty_data();
+            }
+            Some(i) => {
+                stream.append(&arena.get(*i));
+            }
         }
         stream.out()
     }
 }
 
-#[derive(Debug)]
-pub struct Leaf<T, V> {
-    nibble: Nibble<T>,
-    value: V,
+#[derive(Debug, Default, Clone)]
+pub struct Leaf {
+    pub nibble: Nibble,
+    pub value: usize,
 }
 
-impl<T, V> Leaf<T, V> {
-    pub fn new(nibble: Nibble<T>, value: V) -> Self {
+impl Leaf {
+    pub fn new<N: AsRef<[u8]>, V: AsRef<[u8]>>(nibble: N, value: V, arena: &mut Arena) -> Leaf {
+        let nibble = Nibble::new(nibble, arena);
+        let value = arena.push(value.as_ref());
         Leaf { nibble, value }
     }
-    pub fn nibble(&self) -> &Nibble<T> {
-        &self.nibble
-    }
-    pub fn set_value(&mut self, value: V) -> V {
-        mem::replace(&mut self.value, value)
-    }
-    pub fn set_nibble(&mut self, nibble: Nibble<T>) -> Nibble<T> {
-        mem::replace(&mut self.nibble, nibble)
-    }
-    pub fn value(self) -> V {
-        self.value
-    }
-    pub fn value_ref(&self) -> &V {
-        &self.value
-    }
-}
 
-impl<T: AsRef<[u8]>, V: AsRef<[u8]>> Leaf<T, V> {
-    pub fn rlp_encoded(&self) -> Vec<u8> {
+    pub fn rlp_encoded(&self, arena: &Arena) -> Vec<u8> {
         let mut stream = RlpStream::new();
-        let buffer = self.nibble.as_slice().encoded(true);
+        let buffer = self.nibble.encoded(true, arena);
         stream
             .begin_list(2)
             .append(&buffer)
-            .append(&self.value.as_ref());
+            .append(&arena.get(self.value));
         stream.out()
     }
 }
 
-#[derive(Debug)]
-pub struct Extension<T, K> {
-    nibble: Nibble<T>,
-    key: K,
+#[derive(Debug, Default, Clone)]
+pub struct Extension {
+    pub nibble: Nibble,
+    pub key: usize,
 }
 
-impl<T, K> Extension<T, K> {
-    pub fn new(nibble: Nibble<T>, key: K) -> Self {
-        Extension { nibble, key }
-    }
-    pub fn nibble(&self) -> &Nibble<T> {
-        &self.nibble
-    }
-    pub fn set_key(&mut self, key: K) -> K {
-        mem::replace(&mut self.key, key)
-    }
-    pub fn set_nibble(&mut self, nibble: Nibble<T>) -> Nibble<T> {
-        mem::replace(&mut self.nibble, nibble)
-    }
-    pub fn key(self) -> K {
-        self.key
-    }
-    pub fn key_ref(&self) -> &K {
-        &self.key
-    }
-}
-
-impl<T: AsRef<[u8]>, K: AsRef<[u8]>> Extension<T, K> {
-    pub fn rlp_encoded(&self) -> Vec<u8> {
+impl Extension {
+    pub fn rlp_encoded(&self, arena: &Arena) -> Vec<u8> {
         let mut stream = RlpStream::new();
-        let buffer = self.nibble.as_slice().encoded(false);
+        let buffer = self.nibble.encoded(false, arena);
         stream
             .begin_list(2)
             .append(&buffer)
-            .append_raw(&self.key.as_ref(), 1);
+            .append_raw(&arena.get(self.key), 1);
         stream.out()
     }
 }
 
-impl<T, K, V> Node<T, K, V>
-where
-    T: AsRef<[u8]>,
-    K: AsRef<[u8]>,
-    V: AsRef<[u8]>,
-{
-    pub fn rlp_encoded(&self) -> Vec<u8> {
+impl Node {
+    pub fn rlp_encoded(&self, arena: &Arena) -> Vec<u8> {
         match self {
-            Node::Leaf(leaf) => leaf.rlp_encoded(),
-            Node::Extension(extension) => extension.rlp_encoded(),
-            Node::Branch(branch) => branch.rlp_encoded(),
+            Node::Leaf(leaf) => leaf.rlp_encoded(arena),
+            Node::Extension(extension) => extension.rlp_encoded(arena),
+            Node::Branch(branch) => branch.rlp_encoded(arena),
             Node::Empty => {
                 let mut stream = RlpStream::new();
                 stream.append_empty_data();
