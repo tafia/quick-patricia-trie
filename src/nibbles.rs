@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Hash, Clone)]
 pub enum Nibble<T> {
     Even(T),
     Left(u8, T),
@@ -69,6 +69,8 @@ where
         }
     }
 }
+
+impl<T: AsRef<[u8]>> Eq for Nibble<T> {}
 
 impl<T: Default> Default for Nibble<T> {
     fn default() -> Self {

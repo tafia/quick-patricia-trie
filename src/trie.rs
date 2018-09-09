@@ -1,7 +1,6 @@
 use nibbles::Nibble;
 use node::{Branch, Extension, Leaf, Node};
 use std::marker::PhantomData;
-use std::mem;
 use storage::Storage;
 
 /// A patricia trie
@@ -58,21 +57,21 @@ where
                 Node::Branch(ref branch) => {
                     if let Some((u, n)) = path.split_first() {
                         debug!("got split first");
-                        key = branch.keys.get(u as usize)?.as_ref()?;
+                        key = branch.get(u)?;
                         path = n;
                     } else {
                         debug!("returning branch value");
-                        return branch.value.as_ref();
+                        return branch.get_value();
                     }
                 }
                 Node::Extension(ref extension) => {
-                    path = path.split_start(&extension.nibble.as_slice())?;
-                    key = &extension.key;
+                    path = path.split_start(&extension.nibble().as_slice())?;
+                    key = extension.key_ref();
                 }
                 Node::Leaf(ref leaf) => {
                     debug!("leaf!");
-                    return if leaf.nibble == path {
-                        Some(&leaf.value)
+                    return if *leaf.nibble() == path {
+                        Some(leaf.value_ref())
                     } else {
                         None
                     };
@@ -102,17 +101,17 @@ where
                 match self.db.get(key)? {
                     Node::Branch(branch) => {
                         if let Some((u, n)) = path.split_first() {
-                            key = branch.keys.get(u as usize)?.as_ref()?;
+                            key = branch.get(u)?;
                             path = n;
                         } else {
                             break true;
                         }
                     }
                     Node::Extension(extension) => {
-                        path = path.split_start(&extension.nibble.as_slice())?;
-                        key = &extension.key;
+                        path = path.split_start(&extension.nibble().as_slice())?;
+                        key = extension.key_ref();
                     }
-                    Node::Leaf(ref leaf) if leaf.nibble == path => break false,
+                    Node::Leaf(ref leaf) if *leaf.nibble() == path => break false,
                     _ => return None,
                 }
             };
@@ -120,12 +119,12 @@ where
         };
         if is_branch {
             match self.db.get_mut(&key)? {
-                Node::Branch(ref mut branch) => branch.value.take(),
+                Node::Branch(ref mut branch) => branch.take_value(),
                 _ => None,
             }
         } else {
             match self.db.remove(&key)? {
-                Node::Leaf(leaf) => Some(leaf.value),
+                Node::Leaf(leaf) => Some(leaf.value()),
                 _ => None,
             }
         }
@@ -154,7 +153,7 @@ where
                     Some(Node::Branch(branch)) => {
                         if let Some((u, n)) = path.split_first() {
                             path = n;
-                            match branch.keys.get(u as usize)?.as_ref() {
+                            match branch.get(u) {
                                 Some(k) => key = k,
                                 None => break Action::BranchKey(u),
                             }
@@ -163,10 +162,10 @@ where
                         }
                     }
                     Some(Node::Extension(extension)) => {
-                        match path.split_start(&extension.nibble.as_slice()) {
+                        match path.split_start(&extension.nibble().as_slice()) {
                             Some(p) => {
                                 path = p;
-                                key = &extension.key;
+                                key = &extension.key_ref();
                             }
                             None => break Action::BreakExtension,
                         }
@@ -180,27 +179,21 @@ where
 
         // insert the value with eventually intermediary nodes
         match action {
-            Action::InsertLeaf => match self.db.insert_leaf(
-                key,
-                Leaf {
-                    nibble: path.into(),
-                    value,
-                },
-            ) {
-                Some(Node::Leaf(leaf)) => Some(leaf.value),
+            Action::InsertLeaf => match self.db.insert_leaf(key, Leaf::new(path.into(), value)) {
+                Some(Node::Leaf(leaf)) => Some(leaf.value()),
                 _ => None,
             },
             Action::BranchValue => match self.db.get_mut(&key) {
-                Some(Node::Branch(ref mut branch)) => mem::replace(&mut branch.value, Some(value)),
+                Some(Node::Branch(ref mut branch)) => {
+                    branch.set_value(Some(value));
+                    None
+                }
                 _ => None,
             },
             Action::BranchKey(idx) => {
-                let new_key = self.db.push_leaf(Leaf {
-                    nibble: path.into(),
-                    value,
-                });
+                let new_key = self.db.push_leaf(Leaf::new(path.into(), value));
                 match self.db.get_mut(&key) {
-                    Some(Node::Branch(ref mut branch)) => branch.keys[idx as usize] = Some(new_key),
+                    Some(Node::Branch(ref mut branch)) => branch.set(idx, Some(new_key)),
                     _ => (),
                 }
                 None
@@ -215,37 +208,28 @@ where
         Nibble<T>: From<Nibble<Vec<u8>>>,
     {
         debug!("removing leaf");
-        let leaf = match self.db.remove(&key) {
+        let mut leaf = match self.db.remove(&key) {
             Some(Node::Leaf(leaf)) => leaf,
             _ => return None,
         };
-        if path == leaf.nibble.as_slice() {
-            self.db.insert_leaf(
-                key,
-                Leaf {
-                    nibble: leaf.nibble,
-                    value,
-                },
-            );
-            return Some(leaf.value);
+        if path == leaf.nibble().as_slice() {
+            let value = leaf.set_value(value);
+            self.db.insert_leaf(key, leaf);
+            return Some(value);
         }
         let common = path
             .iter()
-            .zip(leaf.nibble.iter())
+            .zip(leaf.nibble().iter())
             .take_while(|(u, v)| u == v)
             .map(|(u, _)| u)
             .collect::<Vec<_>>();
 
-        let mut keys = [
-            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None,
-        ];
-        let mut branch_val = None;
+        let mut branch = Branch::new();
 
         debug!(
             "(path: {}, n: {}, common: {})",
             path.len(),
-            leaf.nibble.len(),
+            leaf.nibble().len(),
             common.len()
         );
 
@@ -254,49 +238,40 @@ where
 
             if path.len() == 1 {
                 debug!("using branch value");
-                branch_val = Some(value);
+                branch.set_value(Some(value));
             } else {
                 let (i, nibble) = path
                     .as_slice()
                     .split_first()
                     .expect("pos == 0 so there is an item");
                 debug!("pushing leaf");
-                let key = self.db.push_leaf(Leaf {
-                    nibble: nibble.to_vec().into(),
-                    value,
-                });
-                keys[i as usize] = Some(key);
+                let key = self.db.push_leaf(Leaf::new(nibble.to_vec().into(), value));
+                branch.set(i, Some(key));
             }
-            if leaf.nibble.len() == 1 {
+            if leaf.nibble().len() == 1 {
                 debug!("using branch value");
-                branch_val = Some(leaf.value);
+                branch.set_value(Some(leaf.value()));
             } else {
-                let (i, nibble) = leaf
-                    .nibble
-                    .as_slice()
-                    .split_first()
-                    .expect("pos == 0 so there is an item");
+                let (i, nibble) = {
+                    let (i, nibble) = leaf
+                        .nibble()
+                        .as_slice()
+                        .split_first()
+                        .expect("pos == 0 so there is an item");
+                    (i, nibble.to_vec().into())
+                };
                 debug!("pushing leaf");
-                let key = self.db.push_leaf(Leaf {
-                    nibble: nibble.to_vec().into(),
-                    value: leaf.value,
-                });
-                keys[i as usize] = Some(key);
+                let key = self.db.push_leaf(Leaf::new(nibble, leaf.value()));
+                branch.set(i, Some(key));
             }
             debug!("inserting branch");
-            self.db.insert_branch(
-                key,
-                Branch {
-                    keys,
-                    value: branch_val,
-                },
-            );
+            self.db.insert_branch(key, branch);
         } else {
             // extension, branch, then 2 leaves
             let start = Nibble::from_nibbles(&common);
             if path.len() == start.len() {
                 debug!("using branch value");
-                branch_val = Some(value);
+                branch.set_value(Some(value));
             } else {
                 let nibble = path
                     .as_slice()
@@ -307,45 +282,35 @@ where
                     .split_first()
                     .expect("nibble is bigger than start");
                 debug!("pushing leaf");
-                let key = self.db.push_leaf(Leaf {
-                    nibble: nibble.to_vec().into(),
-                    value,
-                });
-                keys[i as usize] = Some(key);
+                let key = self.db.push_leaf(Leaf::new(nibble.to_vec().into(), value));
+                branch.set(i, Some(key));
             }
-            if leaf.nibble.len() == start.len() {
+            if leaf.nibble().len() == start.len() {
                 debug!("using branch value");
-                branch_val = Some(leaf.value);
+                branch.set_value(Some(leaf.value()));
             } else {
-                let nibble = leaf
-                    .nibble
-                    .as_slice()
-                    .split_n(start.len())
-                    .expect("nibble is bigger than start");
-                let (i, nibble) = nibble
-                    .as_slice()
-                    .split_first()
-                    .expect("nibble is bigger than start");
+                let (i, nibble) = {
+                    let nibble = leaf
+                        .nibble()
+                        .as_slice()
+                        .split_n(start.len())
+                        .expect("nibble is bigger than start");
+                    let (i, nibble) = nibble
+                        .as_slice()
+                        .split_first()
+                        .expect("nibble is bigger than start");
+                    (i, nibble.to_vec().into())
+                };
                 debug!("pushing leaf");
-                let key = self.db.push_leaf(Leaf {
-                    nibble: nibble.to_vec().into(),
-                    value: leaf.value,
-                });
-                keys[i as usize] = Some(key);
+                leaf.set_nibble(nibble);
+                let key = self.db.push_leaf(leaf);
+                branch.set(i, Some(key));
             }
             debug!("pushing branch");
-            let branch_key = self.db.push_branch(Branch {
-                keys,
-                value: branch_val,
-            });
+            let branch_key = self.db.push_branch(branch);
             debug!("inserting extension");
-            self.db.insert_extension(
-                key,
-                Extension {
-                    nibble: start.into(),
-                    key: branch_key,
-                },
-            );
+            self.db
+                .insert_extension(key, Extension::new(start.into(), branch_key));
         }
         None
     }
@@ -355,69 +320,63 @@ where
         Nibble<T>: From<Nibble<Vec<u8>>>,
     {
         debug!("removing extension");
-        let extension = match self.db.remove(&key) {
+        let mut extension = match self.db.remove(&key) {
             Some(Node::Extension(e)) => e,
             _ => return None,
         };
         let common = path
             .iter()
-            .zip(extension.nibble.iter())
+            .zip(extension.nibble().iter())
             .take_while(|(u, v)| u == v)
             .map(|(u, _)| u)
             .collect::<Vec<_>>();
 
-        let mut keys = [
-            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None,
-        ];
-        let mut branch_val = None;
+        let mut branch = Branch::new();
 
         debug!(
             "(path: {}, n: {}, common: {})",
             path.len(),
-            extension.nibble.len(),
+            extension.nibble().len(),
             common.len()
         );
         if common.is_empty() {
             // branch then 2 leaves
             if path.len() == 1 {
                 debug!("using branch value");
-                branch_val = Some(value);
+                branch.set_value(Some(value));
             } else {
                 let (i, nibble) = path
                     .as_slice()
                     .split_first()
                     .expect("nibble is bigger than start");
                 debug!("pushing leaf");
-                let key = self.db.push_leaf(Leaf {
-                    nibble: nibble.to_vec().into(),
-                    value,
-                });
-                keys[i as usize] = Some(key);
+                let key = self.db.push_leaf(Leaf::new(nibble.to_vec().into(), value));
+                branch.set(i, Some(key));
             }
-            if extension.nibble.len() == 1 {
-                let ext_val = extension.nibble.iter().next().expect("There is one item");
+            if extension.nibble().len() == 1 {
+                let ext_val = extension.nibble().iter().next().expect("There is one item");
                 debug!("using branch value");
-                keys[ext_val as usize] = Some(extension.key);
+                branch.set(ext_val, Some(extension.key()));
             } else {
-                let (i, nibble) = extension
-                    .nibble
-                    .as_slice()
-                    .split_first()
-                    .expect("nibble is bigger than start");
+                let (i, nibble) = {
+                    let (i, nibble) = extension
+                        .nibble()
+                        .as_slice()
+                        .split_first()
+                        .expect("nibble is bigger than start");
+                    (i, nibble.to_vec().into())
+                };
                 debug!("pushing extension");
-                let key = self.db.push_extension(Extension {
-                    nibble: nibble.to_vec().into(),
-                    key: extension.key,
-                });
-                keys[i as usize] = Some(key);
+                extension.set_nibble(nibble);
+                let key = self.db.push_extension(extension);
+                branch.set(i, Some(key));
             }
         } else {
             // extension, branch, then 2 leaves
             let start = Nibble::from_nibbles(&common);
             if path.len() == start.len() {
                 debug!("using branch value");
-                branch_val = Some(value);
+                branch.set_value(Some(value));
             } else {
                 let nibble = path
                     .as_slice()
@@ -428,36 +387,29 @@ where
                     .split_first()
                     .expect("nibble is bigger than start");
                 debug!("pushing leaf");
-                let key = self.db.push_leaf(Leaf {
-                    nibble: nibble.to_vec().into(),
-                    value,
-                });
-                keys[i as usize] = Some(key);
+                let key = self.db.push_leaf(Leaf::new(nibble.to_vec().into(), value));
+                branch.set(i, Some(key));
             }
-            let nibble = extension
-                .nibble
-                .as_slice()
-                .split_n(start.len())
-                .expect("nibble is bigger than start");
-            let (i, nibble) = nibble
-                .as_slice()
-                .split_first()
-                .expect("nibble is bigger than start");
+            let (i, nibble) = {
+                let nibble = extension
+                    .nibble()
+                    .as_slice()
+                    .split_n(start.len())
+                    .expect("nibble is bigger than start");
+                let (i, nibble) = nibble
+                    .as_slice()
+                    .split_first()
+                    .expect("nibble is bigger than start");
+                (i, nibble.to_vec().into())
+            };
+            extension.set_nibble(nibble);
+
             debug!("pushing extension");
-            let ext_key = self.db.push_extension(Extension {
-                nibble: nibble.to_vec().into(),
-                key: extension.key,
-            });
-            keys[i as usize] = Some(ext_key);
+            let ext_key = self.db.push_extension(extension);
+            branch.set(i, Some(ext_key));
         }
         debug!("pushing branch");
-        self.db.insert_branch(
-            key,
-            Branch {
-                keys,
-                value: branch_val,
-            },
-        );
+        self.db.insert_branch(key, branch);
         None
     }
 }

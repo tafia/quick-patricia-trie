@@ -1,5 +1,6 @@
 use nibbles::Nibble;
 use rlp::RlpStream;
+use std::mem;
 
 /// A trie `Node`
 ///
@@ -22,8 +23,34 @@ impl<T, K, V> Default for Node<T, K, V> {
 
 #[derive(Debug)]
 pub struct Branch<K, V> {
-    pub keys: [Option<K>; 16],
-    pub value: Option<V>,
+    keys: [Option<K>; 16],
+    value: Option<V>,
+}
+
+impl<K, V> Branch<K, V> {
+    pub fn new() -> Self {
+        let keys = [
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None,
+        ];
+
+        Branch { value: None, keys }
+    }
+    pub fn get(&self, i: u8) -> Option<&K> {
+        self.keys.get(i as usize).and_then(|v| v.as_ref())
+    }
+    pub fn set(&mut self, i: u8, value: Option<K>) {
+        self.keys.get_mut(i as usize).map(|v| *v = value);
+    }
+    pub fn get_value(&self) -> Option<&V> {
+        self.value.as_ref()
+    }
+    pub fn set_value(&mut self, value: Option<V>) {
+        self.value = value;
+    }
+    pub fn take_value(&mut self) -> Option<V> {
+        self.value.take()
+    }
 }
 
 impl<K: AsRef<[u8]>, V: AsRef<[u8]>> Branch<K, V> {
@@ -47,8 +74,29 @@ impl<K: AsRef<[u8]>, V: AsRef<[u8]>> Branch<K, V> {
 
 #[derive(Debug)]
 pub struct Leaf<T, V> {
-    pub nibble: Nibble<T>,
-    pub value: V,
+    nibble: Nibble<T>,
+    value: V,
+}
+
+impl<T, V> Leaf<T, V> {
+    pub fn new(nibble: Nibble<T>, value: V) -> Self {
+        Leaf { nibble, value }
+    }
+    pub fn nibble(&self) -> &Nibble<T> {
+        &self.nibble
+    }
+    pub fn set_value(&mut self, value: V) -> V {
+        mem::replace(&mut self.value, value)
+    }
+    pub fn set_nibble(&mut self, nibble: Nibble<T>) -> Nibble<T> {
+        mem::replace(&mut self.nibble, nibble)
+    }
+    pub fn value(self) -> V {
+        self.value
+    }
+    pub fn value_ref(&self) -> &V {
+        &self.value
+    }
 }
 
 impl<T: AsRef<[u8]>, V: AsRef<[u8]>> Leaf<T, V> {
@@ -65,8 +113,29 @@ impl<T: AsRef<[u8]>, V: AsRef<[u8]>> Leaf<T, V> {
 
 #[derive(Debug)]
 pub struct Extension<T, K> {
-    pub nibble: Nibble<T>,
-    pub key: K,
+    nibble: Nibble<T>,
+    key: K,
+}
+
+impl<T, K> Extension<T, K> {
+    pub fn new(nibble: Nibble<T>, key: K) -> Self {
+        Extension { nibble, key }
+    }
+    pub fn nibble(&self) -> &Nibble<T> {
+        &self.nibble
+    }
+    pub fn set_key(&mut self, key: K) -> K {
+        mem::replace(&mut self.key, key)
+    }
+    pub fn set_nibble(&mut self, nibble: Nibble<T>) -> Nibble<T> {
+        mem::replace(&mut self.nibble, nibble)
+    }
+    pub fn key(self) -> K {
+        self.key
+    }
+    pub fn key_ref(&self) -> &K {
+        &self.key
+    }
 }
 
 impl<T: AsRef<[u8]>, K: AsRef<[u8]>> Extension<T, K> {
