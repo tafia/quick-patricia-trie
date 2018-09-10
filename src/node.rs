@@ -1,5 +1,6 @@
 use nibbles::Nibble;
 use rlp::RlpStream;
+use storage::merkle::Index;
 use storage::Arena;
 
 /// A trie `Node`
@@ -23,7 +24,7 @@ impl Default for Node {
 
 #[derive(Debug)]
 pub struct Branch {
-    pub keys: [Option<usize>; 16],
+    pub keys: [Option<Index>; 16],
     pub value: Option<usize>,
 }
 
@@ -35,9 +36,21 @@ impl Branch {
         ];
         Branch { keys, value: None }
     }
-    pub fn rlp_encoded(&self, arena: &Arena) -> Vec<u8> {
+
+    /// RLP encode the branch
+    ///
+    /// Returns None if any key is not hashed
+    pub fn rlp_encoded(&self, arena: &Arena) -> Option<Vec<u8>> {
+        let mut keys = Vec::with_capacity(16);
+        for k in self.keys.iter() {
+            match k {
+                Some(Index::Memory(_)) => return None,
+                Some(Index::Hash(ref k)) => keys.push(Some(*k)),
+                None => keys.push(None),
+            }
+        }
         let mut stream = RlpStream::new_list(17);
-        for k in self.keys.iter().cloned() {
+        for k in keys.into_iter() {
             match k {
                 None => {
                     stream.append_empty_data();
@@ -55,7 +68,7 @@ impl Branch {
                 stream.append(&arena.get(*i));
             }
         }
-        stream.out()
+        Some(stream.out())
     }
 }
 
@@ -72,6 +85,9 @@ impl Leaf {
         Leaf { nibble, value }
     }
 
+    /// RLP encode the leaf
+    ///
+    /// Always work
     pub fn rlp_encoded(&self, arena: &Arena) -> Vec<u8> {
         let mut stream = RlpStream::new();
         let buffer = self.nibble.encoded(true, arena);
@@ -86,31 +102,38 @@ impl Leaf {
 #[derive(Debug, Default, Clone)]
 pub struct Extension {
     pub nibble: Nibble,
-    pub key: usize,
+    pub key: Index,
 }
 
 impl Extension {
-    pub fn rlp_encoded(&self, arena: &Arena) -> Vec<u8> {
+    /// RLP encode the extension
+    ///
+    /// Returns None if the key is not hashed
+    pub fn rlp_encoded(&self, arena: &Arena) -> Option<Vec<u8>> {
+        let key = match self.key {
+            Index::Hash(ref key) => *key,
+            Index::Memory(_) => return None,
+        };
         let mut stream = RlpStream::new();
         let buffer = self.nibble.encoded(false, arena);
         stream
             .begin_list(2)
             .append(&buffer)
-            .append_raw(&arena.get(self.key), 1);
-        stream.out()
+            .append_raw(&arena.get(key), 1);
+        Some(stream.out())
     }
 }
 
 impl Node {
-    pub fn rlp_encoded(&self, arena: &Arena) -> Vec<u8> {
+    pub fn rlp_encoded(&self, arena: &Arena) -> Option<Vec<u8>> {
         match self {
-            Node::Leaf(leaf) => leaf.rlp_encoded(arena),
+            Node::Leaf(leaf) => Some(leaf.rlp_encoded(arena)),
             Node::Extension(extension) => extension.rlp_encoded(arena),
             Node::Branch(branch) => branch.rlp_encoded(arena),
             Node::Empty => {
                 let mut stream = RlpStream::new();
                 stream.append_empty_data();
-                stream.out()
+                Some(stream.out())
             }
         }
     }

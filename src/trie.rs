@@ -25,7 +25,7 @@ impl Trie {
     pub fn get(&self, mut path: Nibble, arena: &Arena) -> Option<&[u8]> {
         let mut key = self.db.root();
         loop {
-            debug!("searching key {}", key);
+            debug!("searching key {:?}", key);
             match self.db.get(&key)? {
                 Node::Branch(ref branch) => {
                     if let Some((u, n)) = path.pop_front(arena) {
@@ -140,7 +140,7 @@ impl Trie {
         };
         match action {
             Action::BranchKey(u, new_leaf) => {
-                let new_key = self.db.push_leaf(new_leaf, &mut self.arena);
+                let new_key = self.db.push_leaf(new_leaf);
                 if let Node::Branch(ref mut branch) = self.db.get_mut(&key)? {
                     branch.keys[u as usize] = Some(new_key);
                 }
@@ -151,7 +151,7 @@ impl Trie {
                 if offset == 0 {
                     if let Some((u, path)) = path.pop_front(arena) {
                         let nibble = path.copy(arena, &mut self.arena);
-                        let new_key = self.db.push_leaf(Leaf { nibble, value }, &mut self.arena);
+                        let new_key = self.db.push_leaf(Leaf { nibble, value });
                         branch.keys[u as usize] = Some(new_key);
                     } else {
                         branch.value = Some(value);
@@ -169,7 +169,7 @@ impl Trie {
                             nibble,
                             key: ext.key,
                         };
-                        self.db.push_extension(ext, &mut self.arena)
+                        self.db.push_extension(ext)
                     };
                     branch.keys[u as usize] = Some(new_key);
                     self.db.insert_node(key, Node::Branch(branch));
@@ -177,7 +177,7 @@ impl Trie {
                     let (_, path) = path.split_at(offset);
                     if let Some((u, path)) = path.and_then(|p| p.pop_front(arena)) {
                         let nibble = path.copy(arena, &mut self.arena);
-                        let new_key = self.db.push_leaf(Leaf { nibble, value }, &mut self.arena);
+                        let new_key = self.db.push_leaf(Leaf { nibble, value });
                         branch.keys[u as usize] = Some(new_key);
                     } else {
                         branch.value = Some(value);
@@ -197,10 +197,10 @@ impl Trie {
                             nibble,
                             key: ext.key,
                         };
-                        self.db.push_extension(ext, &mut self.arena)
+                        self.db.push_extension(ext)
                     };
                     branch.keys[u as usize] = Some(new_key);
-                    let branch_key = self.db.push_branch(branch, &mut self.arena);
+                    let branch_key = self.db.push_branch(branch);
 
                     let ext = Extension {
                         nibble: ext_left,
@@ -215,7 +215,7 @@ impl Trie {
                 if offset == 0 {
                     if let Some((u, path)) = path.pop_front(arena) {
                         let nibble = path.copy(arena, &mut self.arena);
-                        let new_key = self.db.push_leaf(Leaf { nibble, value }, &mut self.arena);
+                        let new_key = self.db.push_leaf(Leaf { nibble, value });
                         branch.keys[u as usize] = Some(new_key);
                     } else {
                         branch.value = Some(value);
@@ -225,7 +225,7 @@ impl Trie {
                             nibble,
                             value: leaf.value,
                         };
-                        let new_key = self.db.push_leaf(leaf, &mut self.arena);
+                        let new_key = self.db.push_leaf(leaf);
                         branch.keys[u as usize] = Some(new_key);
                     } else {
                         branch.value = Some(leaf.value);
@@ -235,7 +235,7 @@ impl Trie {
                     let (_, path) = path.split_at(offset);
                     if let Some((u, path)) = path.and_then(|p| p.pop_front(arena)) {
                         let nibble = path.copy(arena, &mut self.arena);
-                        let new_key = self.db.push_leaf(Leaf { nibble, value }, &mut self.arena);
+                        let new_key = self.db.push_leaf(Leaf { nibble, value });
                         branch.keys[u as usize] = Some(new_key);
                     } else {
                         branch.value = Some(value);
@@ -246,12 +246,12 @@ impl Trie {
                             nibble,
                             value: leaf.value,
                         };
-                        let new_key = self.db.push_leaf(leaf, &mut self.arena);
+                        let new_key = self.db.push_leaf(leaf);
                         branch.keys[u as usize] = Some(new_key);
                     } else {
                         branch.value = Some(leaf.value);
                     }
-                    let branch_key = self.db.push_branch(branch, &mut self.arena);
+                    let branch_key = self.db.push_branch(branch);
                     let ext = Extension {
                         nibble: leaf_left,
                         key: branch_key,
