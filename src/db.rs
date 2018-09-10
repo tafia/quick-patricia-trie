@@ -1,8 +1,8 @@
+use arena::Arena;
 use keccak_hash::KECCAK_NULL_RLP;
 use node::{Branch, Extension, Leaf, Node};
 use std::collections::{HashMap, VecDeque};
 use std::mem;
-use storage::Arena;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Index {
@@ -21,18 +21,18 @@ impl Default for Index {
 /// Nodes are either stored in a simple Vec memory
 /// or pushed into a *database* with key = sha3(rlp(value))
 #[derive(Debug)]
-pub struct MerkleStorage {
+pub struct Db {
     hash: HashMap<usize, Node>,
     memory: Vec<Node>,
     root: Index,
 }
 
-impl MerkleStorage {
+impl Db {
     pub fn new(arena: &mut Arena) -> Self {
         let idx = arena.push(KECCAK_NULL_RLP.as_ref());
         let mut hash = HashMap::new();
         hash.insert(idx, Node::Empty);
-        MerkleStorage {
+        Db {
             hash,
             memory: Vec::new(),
             root: Index::Hash(idx),
@@ -116,7 +116,7 @@ impl MerkleStorage {
         let mut indexes = vec![None; self.memory.len()];
         let mut queue = self.memory.drain(..).enumerate().collect::<VecDeque<_>>();
         while let Some((i, node)) = queue.pop_back() {
-            match node.build_hash(arena, &indexes) {
+            match node.try_hash(arena, &indexes) {
                 None => queue.push_front((i, node)),
                 Some(idx_hash) => {
                     self.hash.insert(idx_hash, node);

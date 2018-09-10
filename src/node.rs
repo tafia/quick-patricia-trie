@@ -1,26 +1,16 @@
+use arena::Arena;
+use db::Index;
 use keccak_hash::{keccak, H256};
 use nibbles::Nibble;
 use rlp::RlpStream;
-use storage::merkle::Index;
-use storage::Arena;
 
 /// A trie `Node`
-///
-/// - `T` is the nibble inner container
-/// - `K` is the database key
-/// - `V` is the database value
 #[derive(Debug)]
 pub enum Node {
     Empty,
     Branch(Branch),
     Leaf(Leaf),
     Extension(Extension),
-}
-
-impl Default for Node {
-    fn default() -> Self {
-        Node::Empty
-    }
 }
 
 #[derive(Debug)]
@@ -41,7 +31,7 @@ impl Branch {
     /// RLP encode the branch
     ///
     /// Returns None if any key is not hashed
-    pub fn build_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
+    pub fn try_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
         let mut keys = Vec::with_capacity(16);
         for k in self.keys.iter() {
             match k {
@@ -76,7 +66,7 @@ impl Branch {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Leaf {
     pub nibble: Nibble,
     pub value: usize,
@@ -92,7 +82,7 @@ impl Leaf {
     /// RLP encode the leaf
     ///
     /// Always work
-    pub fn build_hash(&self, arena: &mut Arena) -> usize {
+    pub fn try_hash(&self, arena: &mut Arena) -> usize {
         let mut stream = RlpStream::new();
         let buffer = self.nibble.encoded(true, arena);
         stream
@@ -103,7 +93,7 @@ impl Leaf {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Extension {
     pub nibble: Nibble,
     pub key: Index,
@@ -113,7 +103,7 @@ impl Extension {
     /// RLP encode the extension
     ///
     /// Returns None if the key is not hashed
-    pub fn build_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
+    pub fn try_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
         let key = match self.key {
             Index::Hash(ref key) => *key,
             Index::Memory(ref i) => {
@@ -135,11 +125,11 @@ impl Extension {
 }
 
 impl Node {
-    pub fn build_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
+    pub fn try_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
         match self {
-            Node::Leaf(leaf) => Some(leaf.build_hash(arena)),
-            Node::Extension(extension) => extension.build_hash(arena, indexes),
-            Node::Branch(branch) => branch.build_hash(arena, indexes),
+            Node::Leaf(leaf) => Some(leaf.try_hash(arena)),
+            Node::Extension(extension) => extension.try_hash(arena, indexes),
+            Node::Branch(branch) => branch.try_hash(arena, indexes),
             Node::Empty => {
                 let mut stream = RlpStream::new();
                 stream.append_empty_data();

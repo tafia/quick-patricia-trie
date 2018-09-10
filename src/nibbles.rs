@@ -1,4 +1,4 @@
-use storage::Arena;
+use arena::Arena;
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Nibble {

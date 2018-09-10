@@ -7,7 +7,8 @@ extern crate rlp;
 #[cfg(test)]
 extern crate env_logger;
 
+pub mod arena;
+pub mod db;
 pub mod nibbles;
 pub mod node;
-pub mod storage;
 pub mod trie;

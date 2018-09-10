@@ -1,23 +1,24 @@
+use arena::Arena;
+use db::Db;
 use nibbles::Nibble;
 use node::{Branch, Extension, Leaf, Node};
 use std::mem;
-use storage::{merkle::MerkleStorage, Arena};
 
 /// A patricia trie
 #[derive(Debug)]
 pub struct Trie {
     arena: Arena,
-    db: MerkleStorage,
+    db: Db,
 }
 
 impl Trie {
     pub fn new() -> Self {
         let mut arena = Arena::new();
-        let db = MerkleStorage::new(&mut arena);
+        let db = Db::new(&mut arena);
         Trie { arena, db }
     }
 
-    pub fn db(&self) -> &MerkleStorage {
+    pub fn db(&self) -> &Db {
         &self.db
     }
 
@@ -279,7 +280,7 @@ impl Trie {
     //     // - if node = Branch && value is Some => set value to None
     //     // - if node = Branch && value is None => do nothing
     //     let (is_branch, key) = {
-    //         let mut key = &MerkleStorage::root();
+    //         let mut key = &Db::root();
     //         let mut path = path.as_slice();
     //         let is_branch = loop {
     //             match self.db.get(key)? {
@@ -325,8 +326,8 @@ impl Drop for Trie {
 mod test {
 
     use super::*;
+    use db::Index;
     use std::sync::{Once, ONCE_INIT};
-    use storage::merkle::Index;
 
     static INIT: Once = ONCE_INIT;
 

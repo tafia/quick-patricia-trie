@@ -1,5 +1,4 @@
-pub mod merkle;
-
+/// A struct to hold all bytes into the same Vec
 #[derive(Debug)]
 pub struct Arena {
     data: Vec<u8>,
