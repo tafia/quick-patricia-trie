@@ -118,8 +118,7 @@ impl MerkleStorage {
         while let Some((i, node)) = queue.pop_back() {
             match node.build_hash(arena, &indexes) {
                 None => queue.push_front((i, node)),
-                Some(hash) => {
-                    let idx_hash = arena.push(hash.as_ref());
+                Some(idx_hash) => {
                     self.hash.insert(idx_hash, node);
                     indexes[i] = Some(idx_hash);
                 }

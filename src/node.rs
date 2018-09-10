@@ -41,16 +41,14 @@ impl Branch {
     /// RLP encode the branch
     ///
     /// Returns None if any key is not hashed
-    pub fn build_hash(&self, arena: &Arena, indexes: &[Option<usize>]) -> Option<H256> {
+    pub fn build_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
         let mut keys = Vec::with_capacity(16);
         for k in self.keys.iter() {
             match k {
-                Some(Index::Memory(ref i)) => {
-                    match indexes[*i] {
-                        Some(k) => keys.push(Some(k)),
-                        None => return None,
-                    }
-                }
+                Some(Index::Memory(ref i)) => match indexes[*i] {
+                    Some(k) => keys.push(Some(k)),
+                    None => return None,
+                },
                 Some(Index::Hash(ref k)) => keys.push(Some(*k)),
                 None => keys.push(None),
             }
@@ -74,7 +72,7 @@ impl Branch {
                 stream.append(&arena.get(*i));
             }
         }
-        Some(keccak(stream.drain()))
+        Some(hash_or_inline(&stream.drain(), arena))
     }
 }
 
@@ -94,14 +92,14 @@ impl Leaf {
     /// RLP encode the leaf
     ///
     /// Always work
-    pub fn build_hash(&self, arena: &Arena) -> H256 {
+    pub fn build_hash(&self, arena: &mut Arena) -> usize {
         let mut stream = RlpStream::new();
         let buffer = self.nibble.encoded(true, arena);
         stream
             .begin_list(2)
             .append(&buffer)
             .append(&arena.get(self.value));
-        keccak(&stream.drain())
+        hash_or_inline(&stream.drain(), arena)
     }
 }
 
@@ -115,7 +113,7 @@ impl Extension {
     /// RLP encode the extension
     ///
     /// Returns None if the key is not hashed
-    pub fn build_hash(&self, arena: &Arena, indexes: &[Option<usize>]) -> Option<H256> {
+    pub fn build_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
         let key = match self.key {
             Index::Hash(ref key) => *key,
             Index::Memory(ref i) => {
@@ -132,12 +130,12 @@ impl Extension {
             .begin_list(2)
             .append(&buffer)
             .append_raw(&arena.get(key), 1);
-        Some(keccak(stream.drain()))
+        Some(hash_or_inline(&stream.drain(), arena))
     }
 }
 
 impl Node {
-    pub fn build_hash(&self, arena: &Arena, indexes: &[Option<usize>]) -> Option<H256> {
+    pub fn build_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
         match self {
             Node::Leaf(leaf) => Some(leaf.build_hash(arena)),
             Node::Extension(extension) => extension.build_hash(arena, indexes),
@@ -145,8 +143,17 @@ impl Node {
             Node::Empty => {
                 let mut stream = RlpStream::new();
                 stream.append_empty_data();
-                Some(keccak(stream.drain()))
+                Some(hash_or_inline(&stream.drain(), arena))
             }
         }
+    }
+}
+
+#[inline]
+fn hash_or_inline(data: &[u8], arena: &mut Arena) -> usize {
+    if data.len() <= H256::len() {
+        arena.push(data)
+    } else {
+        arena.push(keccak(data).as_ref())
     }
 }
