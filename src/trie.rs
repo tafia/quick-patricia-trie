@@ -315,6 +315,12 @@ impl Trie {
     // }
 }
 
+impl Drop for Trie {
+    fn drop(&mut self) {
+        self.commit();
+    }
+}
+
 #[cfg(test)]
 mod test {
 

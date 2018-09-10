@@ -1,4 +1,4 @@
-use keccak_hash::{keccak, KECCAK_NULL_RLP};
+use keccak_hash::KECCAK_NULL_RLP;
 use node::{Branch, Extension, Leaf, Node};
 use std::collections::{HashMap, VecDeque};
 use std::mem;
@@ -113,44 +113,28 @@ impl MerkleStorage {
     /// Commit all the in memory nodes into hash db
     pub fn commit<'a>(&mut self, arena: &'a mut Arena) -> Option<&'a [u8]> {
         // create a queue of nodes to commit
+        let mut indexes = vec![None; self.memory.len()];
         let mut queue = self.memory.drain(..).enumerate().collect::<VecDeque<_>>();
         while let Some((i, node)) = queue.pop_back() {
-            match node.rlp_encoded(arena) {
+            match node.build_hash(arena, &indexes) {
                 None => queue.push_front((i, node)),
-                Some(encoded_value) => {
-                    let key = keccak(encoded_value);
-                    let idx_hash = arena.push(key.as_ref());
+                Some(hash) => {
+                    let idx_hash = arena.push(hash.as_ref());
                     self.hash.insert(idx_hash, node);
-
-                    // update all the queue with the new index
-                    for &mut (_, ref mut node) in queue.iter_mut() {
-                        match node {
-                            Node::Extension(ref mut ext) if ext.key == Index::Memory(i) => {
-                                ext.key = Index::Hash(idx_hash);
-                            }
-                            Node::Branch(ref mut branch) => {
-                                for k in branch.keys.iter_mut() {
-                                    if let Some(ref mut k) = k {
-                                        if *k == Index::Memory(i) {
-                                            *k = Index::Hash(idx_hash);
-                                        }
-                                    }
-                                }
-                            }
-                            _ => (),
-                        }
-                    }
-
-                    // eventually update the root
-                    if self.root == Index::Memory(i) {
-                        self.root = Index::Hash(idx_hash);
-                    }
+                    indexes[i] = Some(idx_hash);
                 }
             }
         }
 
         match self.root {
-            Index::Memory(_) => None,
+            Index::Memory(i) => {
+                if let Some(i) = indexes[i] {
+                    self.root = Index::Hash(i);
+                    Some(arena.get(i))
+                } else {
+                    None
+                }
+            }
             Index::Hash(i) => Some(arena.get(i)),
         }
     }

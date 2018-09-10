@@ -1,3 +1,4 @@
+use keccak_hash::{keccak, H256};
 use nibbles::Nibble;
 use rlp::RlpStream;
 use storage::merkle::Index;
@@ -40,11 +41,16 @@ impl Branch {
     /// RLP encode the branch
     ///
     /// Returns None if any key is not hashed
-    pub fn rlp_encoded(&self, arena: &Arena) -> Option<Vec<u8>> {
+    pub fn build_hash(&self, arena: &Arena, indexes: &[Option<usize>]) -> Option<H256> {
         let mut keys = Vec::with_capacity(16);
         for k in self.keys.iter() {
             match k {
-                Some(Index::Memory(_)) => return None,
+                Some(Index::Memory(ref i)) => {
+                    match indexes[*i] {
+                        Some(k) => keys.push(Some(k)),
+                        None => return None,
+                    }
+                }
                 Some(Index::Hash(ref k)) => keys.push(Some(*k)),
                 None => keys.push(None),
             }
@@ -68,7 +74,7 @@ impl Branch {
                 stream.append(&arena.get(*i));
             }
         }
-        Some(stream.out())
+        Some(keccak(stream.drain()))
     }
 }
 
@@ -88,14 +94,14 @@ impl Leaf {
     /// RLP encode the leaf
     ///
     /// Always work
-    pub fn rlp_encoded(&self, arena: &Arena) -> Vec<u8> {
+    pub fn build_hash(&self, arena: &Arena) -> H256 {
         let mut stream = RlpStream::new();
         let buffer = self.nibble.encoded(true, arena);
         stream
             .begin_list(2)
             .append(&buffer)
             .append(&arena.get(self.value));
-        stream.out()
+        keccak(&stream.drain())
     }
 }
 
@@ -109,10 +115,16 @@ impl Extension {
     /// RLP encode the extension
     ///
     /// Returns None if the key is not hashed
-    pub fn rlp_encoded(&self, arena: &Arena) -> Option<Vec<u8>> {
+    pub fn build_hash(&self, arena: &Arena, indexes: &[Option<usize>]) -> Option<H256> {
         let key = match self.key {
             Index::Hash(ref key) => *key,
-            Index::Memory(_) => return None,
+            Index::Memory(ref i) => {
+                if let Some(k) = indexes[*i] {
+                    k
+                } else {
+                    return None;
+                }
+            }
         };
         let mut stream = RlpStream::new();
         let buffer = self.nibble.encoded(false, arena);
@@ -120,20 +132,20 @@ impl Extension {
             .begin_list(2)
             .append(&buffer)
             .append_raw(&arena.get(key), 1);
-        Some(stream.out())
+        Some(keccak(stream.drain()))
     }
 }
 
 impl Node {
-    pub fn rlp_encoded(&self, arena: &Arena) -> Option<Vec<u8>> {
+    pub fn build_hash(&self, arena: &Arena, indexes: &[Option<usize>]) -> Option<H256> {
         match self {
-            Node::Leaf(leaf) => Some(leaf.rlp_encoded(arena)),
-            Node::Extension(extension) => extension.rlp_encoded(arena),
-            Node::Branch(branch) => branch.rlp_encoded(arena),
+            Node::Leaf(leaf) => Some(leaf.build_hash(arena)),
+            Node::Extension(extension) => extension.build_hash(arena, indexes),
+            Node::Branch(branch) => branch.build_hash(arena, indexes),
             Node::Empty => {
                 let mut stream = RlpStream::new();
                 stream.append_empty_data();
-                Some(stream.out())
+                Some(keccak(stream.drain()))
             }
         }
     }
