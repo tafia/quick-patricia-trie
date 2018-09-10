@@ -95,16 +95,16 @@ impl Nibble {
         let len = self.len();
         let data = arena.get(self.data);
         let mut buf = Vec::with_capacity(len / 2 + 1);
-        match (self.end % 2, self.start % 2) {
+        match (self.start % 2, self.end % 2) {
             (0, 0) => {
                 buf.push(if is_leaf { 0x20 } else { 0 });
                 buf.extend_from_slice(&data[self.start / 2..self.end / 2]);
             }
-            (0, 1) => {
+            (1, 0) => {
                 buf.push(data[self.start / 2] & 0x0F | if is_leaf { 0x30 } else { 0x10 });
                 buf.extend_from_slice(&data[self.start / 2 + 1..self.end / 2]);
             }
-            (1, 0) => {
+            (0, 1) => {
                 buf.push(data[self.start / 2] & 0x0F | if is_leaf { 0x30 } else { 0x10 });
                 let mut i = self.start;
                 while i < self.end {

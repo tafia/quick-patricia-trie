@@ -72,7 +72,7 @@ impl Trie {
         }
 
         let action = loop {
-            match self.db.get_mut(&key) {
+            match self.db.get_mut(&mut key) {
                 Some(Node::Branch(ref mut branch)) => {
                     if let Some((u, n)) = path.pop_front(arena) {
                         let mut k = branch.keys[u as usize];
@@ -141,7 +141,7 @@ impl Trie {
         match action {
             Action::BranchKey(u, new_leaf) => {
                 let new_key = self.db.push_leaf(new_leaf);
-                if let Node::Branch(ref mut branch) = self.db.get_mut(&key)? {
+                if let Node::Branch(ref mut branch) = self.db.get_mut(&mut key)? {
                     branch.keys[u as usize] = Some(new_key);
                 }
             }
@@ -267,6 +267,10 @@ impl Trie {
         None
     }
 
+    pub fn commit(&mut self) -> Option<&[u8]> {
+        self.db.commit(&mut self.arena)
+    }
+
     // /// Remove the item corresponding to that nibble
     // pub fn remove(&mut self, path: Nibble) -> Option<&[u8]> {
     //     // In practice we have several scenarii depending on the final node:
@@ -316,6 +320,7 @@ mod test {
 
     use super::*;
     use std::sync::{Once, ONCE_INIT};
+    use storage::merkle::Index;
 
     static INIT: Once = ONCE_INIT;
 
@@ -350,17 +355,31 @@ mod test {
 
         let mut trie = Trie::new();
 
+        assert_eq!(trie.db.root(), Index::Hash(1));
+
         let mut arena = Arena::new();
         let test_leaf = Leaf::new("test node", "my node", &mut arena);
         trie.insert(test_leaf.clone(), &mut arena);
         node_eq!(&trie, vec![&test_leaf], &arena);
+        assert_eq!(trie.db.root(), Index::Memory(0));
 
         let test_leaf2 = Leaf::new("test", "my node short", &mut arena);
         trie.insert(test_leaf2.clone(), &mut arena);
         node_eq!(&trie, vec![&test_leaf, &test_leaf2], &arena);
+        assert_eq!(trie.db.root(), Index::Memory(0));
 
         let test_leaf3 = Leaf::new("test node 3", "my node long", &mut arena);
         trie.insert(test_leaf3.clone(), &mut arena);
         node_eq!(&trie, vec![&test_leaf, &test_leaf2, &test_leaf3], &arena);
+        assert_eq!(trie.db.root(), Index::Memory(0));
+
+        assert_eq!(
+            trie.commit().unwrap(),
+            [
+                76, 16, 25, 85, 68, 153, 215, 193, 65, 54, 147, 132, 244, 54, 251, 74, 250, 20, 77,
+                239, 178, 230, 16, 100, 177, 214, 88, 16, 108, 238, 223, 11
+            ].as_ref()
+        );
+        assert_eq!(trie.db.root(), Index::Hash(11));
     }
 }

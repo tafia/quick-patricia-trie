@@ -30,8 +30,10 @@ pub struct MerkleStorage {
 impl MerkleStorage {
     pub fn new(arena: &mut Arena) -> Self {
         let idx = arena.push(KECCAK_NULL_RLP.as_ref());
+        let mut hash = HashMap::new();
+        hash.insert(idx, Node::Empty);
         MerkleStorage {
-            hash: HashMap::new(),
+            hash,
             memory: Vec::new(),
             root: Index::Hash(idx),
         }
@@ -48,9 +50,22 @@ impl MerkleStorage {
         }
     }
 
-    pub fn get_mut<'a>(&'a mut self, key: &Index) -> Option<&'a mut Node> {
-        match key {
-            Index::Hash(ref key) => self.hash.get_mut(key),
+    /// Get a mutable reference to node at key
+    ///
+    /// If the key is hashed, then moves the node into memory first
+    pub fn get_mut<'a>(&'a mut self, key: &mut Index) -> Option<&'a mut Node> {
+        match key.clone() {
+            Index::Hash(hash) => {
+                let node = self.hash.remove(&hash)?;
+                let len = self.memory.len();
+                if *key == self.root {
+                    self.root = Index::Memory(len);
+                }
+                debug!("hash {} moved to memory {}", hash, len);
+                *key = Index::Memory(len);
+                self.memory.push(node);
+                self.memory.get_mut(len)
+            }
             Index::Memory(ref key) => self.memory.get_mut(*key),
         }
     }
@@ -96,7 +111,7 @@ impl MerkleStorage {
     }
 
     /// Commit all the in memory nodes into hash db
-    pub fn commit(&mut self, arena: &mut Arena) {
+    pub fn commit<'a>(&mut self, arena: &'a mut Arena) -> Option<&'a [u8]> {
         // create a queue of nodes to commit
         let mut queue = self.memory.drain(..).enumerate().collect::<VecDeque<_>>();
         while let Some((i, node)) = queue.pop_back() {
@@ -125,8 +140,18 @@ impl MerkleStorage {
                             _ => (),
                         }
                     }
+
+                    // eventually update the root
+                    if self.root == Index::Memory(i) {
+                        self.root = Index::Hash(idx_hash);
+                    }
                 }
             }
+        }
+
+        match self.root {
+            Index::Memory(_) => None,
+            Index::Hash(i) => Some(arena.get(i)),
         }
     }
 }
