@@ -36,7 +36,7 @@ impl Branch {
         for k in self.keys.iter() {
             match k {
                 Some(Index::Hash(i)) => {
-                    stream.append_raw(&arena.get(*i), 1);
+                    stream.append_raw(&&arena[*i], 1);
                 }
                 _ => {
                     stream.append_empty_data();
@@ -48,7 +48,7 @@ impl Branch {
                 stream.append_empty_data();
             }
             Some(i) => {
-                stream.append(&arena.get(*i));
+                stream.append(&&arena[*i]);
             }
         }
         hash_or_inline(&stream.drain(), arena)
@@ -77,7 +77,7 @@ impl Leaf {
         stream
             .begin_list(2)
             .append(&buffer)
-            .append(&arena.get(self.value));
+            .append(&&arena[self.value]);
         hash_or_inline(&stream.drain(), arena)
     }
 }
@@ -101,7 +101,7 @@ impl Extension {
         stream
             .begin_list(2)
             .append(&buffer)
-            .append_raw(&arena.get(key), 1);
+            .append_raw(&&arena[key], 1);
         hash_or_inline(&stream.drain(), arena)
     }
 }

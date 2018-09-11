@@ -1,4 +1,4 @@
-use arena::Arena;
+use arena::{Arena, ArenaSlice};
 use db::Db;
 use iter::DFSIter;
 use nibbles::Nibble;
@@ -31,8 +31,23 @@ impl Trie {
         self.db.root(&self.arena)
     }
 
+    pub fn get<A: AsRef<[u8]>>(&self, path: A) -> Option<&[u8]> {
+        let data = path.as_ref();
+        let nibble = Nibble {
+            data: 0,
+            start: 0,
+            end: data.len(),
+        };
+        let data = &[data];
+        let arena = &ArenaSlice(data.as_ref());
+        self.get_nibble(nibble, arena)
+    }
+
     /// Get the item corresponding to that nibble
-    pub fn get(&self, mut path: Nibble, arena: &Arena) -> Option<&[u8]> {
+    pub fn get_nibble<A>(&self, mut path: Nibble, arena: &A) -> Option<&[u8]>
+    where
+        A: ::std::ops::Index<usize, Output = [u8]>,
+    {
         let mut key = self.db.root_index();
         loop {
             debug!("searching key {:?}", key);
@@ -42,13 +57,13 @@ impl Trie {
                         key = branch.keys[u as usize]?;
                         path = n;
                     } else {
-                        return branch.value.as_ref().map(|idx| self.arena.get(*idx));
+                        return branch.value.as_ref().map(|idx| &self.arena[*idx]);
                     }
                 }
                 Node::Extension(ref extension) => {
                     let (left, right) = path.split_at(extension.nibble.len());
                     if let Some(right) = right {
-                        if extension.nibble.eq(&left, &self.arena, Some(arena)) {
+                        if extension.nibble.eq(&left, &self.arena, arena) {
                             path = right;
                             key = extension.key;
                             continue;
@@ -57,8 +72,8 @@ impl Trie {
                     return None;
                 }
                 Node::Leaf(ref leaf) => {
-                    return if leaf.nibble.eq(&path, &self.arena, Some(arena)) {
-                        Some(self.arena.get(leaf.value))
+                    return if leaf.nibble.eq(&path, &self.arena, arena) {
+                        Some(&self.arena[leaf.value])
                     } else {
                         None
                     };
@@ -68,9 +83,26 @@ impl Trie {
         }
     }
 
+    pub fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Option<&[u8]> {
+        let key = key.as_ref();
+        let nibble = Nibble {
+            data: 0,
+            start: 0,
+            end: key.len(),
+        };
+        let value = value.as_ref();
+        let data = &[key, value];
+        let arena = &ArenaSlice(data.as_ref());
+        let leaf = Leaf { nibble, value: 1 };
+        self.insert_leaf(leaf, arena)
+    }
+
     /// Insert a new leaf
-    pub fn insert(&mut self, leaf: Leaf, arena: &Arena) -> Option<&[u8]> {
-        let value = self.arena.push(arena.get(leaf.value));
+    pub fn insert_leaf<A>(&mut self, leaf: Leaf, arena: &A) -> Option<&[u8]>
+    where
+        A: ::std::ops::Index<usize, Output = [u8]>,
+    {
+        let value = self.arena.push(&arena[leaf.value]);
         let mut key = self.db.root_index();
         let mut path = leaf.nibble;
 
@@ -101,7 +133,7 @@ impl Trie {
                         // update branch value
                         let old_value = mem::replace(&mut branch.value, Some(value));
                         let arena = &self.arena;
-                        return old_value.map(move |v| arena.get(v));
+                        return old_value.map(move |v| &arena[v]);
                     }
                 }
                 Some(Node::Extension(ref extension)) => {
@@ -139,7 +171,7 @@ impl Trie {
                     } else if path.len() == leaf.nibble.len() {
                         // exact same nibble => replace leaf
                         let old_val = mem::replace(&mut leaf.value, value);
-                        return Some(self.arena.get(old_val));
+                        return Some(&self.arena[old_val]);
                     } else {
                         // leaf starts with path
                         break Action::Leaf(leaf.clone(), path.len());
@@ -340,6 +372,7 @@ mod test {
 
     use super::*;
     use db::Index;
+    use keccak_hash::KECCAK_NULL_RLP;
     use std::str::from_utf8;
     use std::sync::{Once, ONCE_INIT};
 
@@ -355,20 +388,34 @@ mod test {
     // we use a macro here so the failing test shows where the macro is called instead
     // of the assert_eq line
     macro_rules! node_eq {
-        ($trie:expr, $leaves:expr, $arena:expr) => {
-            for (i, leaf) in $leaves.iter().enumerate() {
-                let v = $trie.get(leaf.nibble.clone(), $arena);
+        ($trie:expr, $inputs:expr) => {
+            for (i, &(key, value)) in $inputs.iter().enumerate() {
+                let v = $trie.get(key);
                 assert_eq!(
                     v,
-                    Some($arena.get(leaf.value)),
-                    "leaf {}: {:?}\ntrie: {:?}",
+                    Some(value.as_bytes()),
+                    "leaf {}: {:?} / {:?}\ntrie: {:?}",
                     i,
-                    leaf,
+                    key,
+                    value,
                     $trie
                 );
             }
         };
     }
+
+    #[test]
+    fn init() {
+        let trie = Trie::new();
+        assert_eq!(trie.root(), Some(KECCAK_NULL_RLP.as_ref()));
+    }
+
+    // #[test]
+    // fn insert_on_empty() {
+    //     let mut trie = Trie::new();
+    //     t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]).unwrap();
+    //     assert_eq!(*t.root(), trie_root::<KeccakHasher, _, _, _>(vec![ (vec![0x01u8, 0x23], vec![0x01u8, 0x23]) ]));
+    // }
 
     #[test]
     fn trie() {
@@ -384,30 +431,29 @@ mod test {
             ("test node 3", "my node long"),
         ];
 
-        let mut arena = Arena::new();
-        let leaves = inputs
-            .iter()
-            .map(|(k, v)| Leaf::new(k, v, &mut arena))
-            .collect::<Vec<_>>();
-
-        trie.insert(leaves[0].clone(), &mut arena);
-        node_eq!(&trie, &leaves[..1], &arena);
+        trie.insert(&inputs[0].0, &inputs[0].1);
+        node_eq!(&trie, &inputs[..1]);
         assert_eq!(trie.root(), None);
 
-        trie.insert(leaves[1].clone(), &mut arena);
-        node_eq!(&trie, &leaves[..2], &arena);
+        trie.insert(&inputs[1].0, &inputs[1].1);
+        node_eq!(&trie, &inputs[..2]);
         assert_eq!(trie.root(), None);
 
-        trie.insert(leaves[2].clone(), &mut arena);
-        node_eq!(&trie, &leaves[..3], &arena);
+        trie.insert(&inputs[2].0, &inputs[2].1);
+        node_eq!(&trie, &inputs[..3]);
         assert_eq!(trie.root(), None);
 
         trie.commit();
         assert_eq!(
             trie.root(),
             Some(
-                [55, 30, 154, 189, 178, 144, 235, 49, 56, 30, 179, 45, 122, 76, 77, 4, 177, 6, 166, 164, 65, 4, 191, 80, 163, 159, 104, 211, 120, 125, 101, 60].as_ref()
-            )
+                [
+                    109, 28, 40, 33, 242, 196, 136, 177, 223, 75, 161, 203, 167, 31, 110, 63, 207,
+                    41, 70, 85, 75, 148, 236, 235, 16, 176, 214, 117, 97, 91, 48, 212
+                ].as_ref() // [55, 30, 154, 189, 178, 144, 235, 49, 56, 30, 179, 45, 122, 76, 77, 4, 177, 6, 166, 164, 65, 4, 191, 80, 163, 159, 104, 211, 120, 125, 101, 60].as_ref()
+            ),
+            "{:?}",
+            trie
         );
 
         let items = trie.iter().collect::<Vec<_>>();

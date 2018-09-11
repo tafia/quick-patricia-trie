@@ -1,4 +1,5 @@
 use arena::Arena;
+use std::ops::Index;
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Nibble {
@@ -23,8 +24,11 @@ impl Nibble {
         self.end - self.start
     }
 
-    pub fn iter<'a>(&'a self, arena: &'a Arena) -> impl Iterator<Item = u8> + 'a {
-        let data = arena.get(self.data);
+    pub fn iter<'a, A: Index<usize, Output = [u8]>>(
+        &'a self,
+        arena: &'a A,
+    ) -> impl Iterator<Item = u8> + 'a {
+        let data = &arena[self.data];
         data[self.start / 2..self.end / 2 + self.end % 2]
             .iter()
             .flat_map(|b| Some(b >> 4).into_iter().chain(Some(b & 0x0F).into_iter()))
@@ -32,11 +36,11 @@ impl Nibble {
             .take(self.len())
     }
 
-    pub fn pop_front(&self, arena: &Arena) -> Option<(u8, Nibble)> {
+    pub fn pop_front<A: Index<usize, Output = [u8]>>(&self, arena: &A) -> Option<(u8, Nibble)> {
         if self.len() == 0 {
             return None;
         }
-        let data = arena.get(self.data);
+        let data = &arena[self.data];
         let first = data[self.start / 2];
         if self.start % 2 == 0 {
             Some((
@@ -71,29 +75,36 @@ impl Nibble {
         }
     }
 
-    pub fn eq(&self, other: &Self, self_arena: &Arena, other_arena: Option<&Arena>) -> bool {
+    pub fn eq<A, B>(&self, other: &Self, self_arena: &A, other_arena: &B) -> bool
+    where
+        A: Index<usize, Output = [u8]>,
+        B: Index<usize, Output = [u8]>,
+    {
         if self.len() != other.len() {
             return false;
         }
-        if other_arena.is_none() && self == other {
-            return true;
-        }
         self.iter(self_arena)
-            .zip(other.iter(other_arena.unwrap_or(self_arena)))
+            .zip(other.iter(other_arena))
             .all(|(u, v)| u == v)
     }
 
-    pub fn copy(&self, self_arena: &Arena, new_arena: &mut Arena) -> Nibble {
-        let data = self_arena.get(self.data);
+    pub fn copy<A>(&self, self_arena: &A, new_arena: &mut Arena) -> Nibble
+    where
+        A: Index<usize, Output = [u8]>,
+    {
+        let data = &self_arena[self.data];
         let data = new_arena.push(&data[self.start / 2..]);
         let start = self.start % 2;
         let end = start + self.len();
         Nibble { data, start, end }
     }
 
-    pub fn encoded(&self, is_leaf: bool, arena: &Arena) -> Vec<u8> {
+    pub fn encoded<A>(&self, is_leaf: bool, arena: &A) -> Vec<u8>
+    where
+        A: Index<usize, Output = [u8]>,
+    {
         let len = self.len();
-        let data = arena.get(self.data);
+        let data = &arena[self.data];
         let mut buf = Vec::with_capacity(len / 2 + 1);
         match (self.start % 2, self.end % 2) {
             (0, 0) => {

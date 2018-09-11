@@ -42,7 +42,7 @@ impl Db {
     pub fn root<'a>(&self, arena: &'a Arena) -> Option<&'a [u8]> {
         match self.root_index() {
             Index::Memory(_) => None,
-            Index::Hash(idx) => Some(arena.get(idx)),
+            Index::Hash(idx) => Some(&arena[idx]),
         }
     }
 

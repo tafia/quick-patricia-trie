@@ -20,9 +20,6 @@ impl Arena {
             pos,
         }
     }
-    pub fn get(&self, i: usize) -> &[u8] {
-        &self.data[self.pos[i - 1]..self.pos[i]]
-    }
     pub fn push(&mut self, data: &[u8]) -> usize {
         debug!(
             "pushing data {} (len {}) in arena (len {})",
@@ -36,6 +33,22 @@ impl Arena {
     }
 }
 
+impl ::std::ops::Index<usize> for Arena {
+    type Output = [u8];
+    fn index(&self, i: usize) -> &[u8] {
+        &self.data[self.pos[i - 1]..self.pos[i]]
+    }
+}
+
+pub struct ArenaSlice<'a>(pub &'a [&'a [u8]]);
+
+impl<'a> ::std::ops::Index<usize> for ArenaSlice<'a> {
+    type Output = [u8];
+    fn index(&self, i: usize) -> &[u8] {
+        &*self.0[i]
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::Arena;
@@ -45,7 +58,7 @@ mod test {
         let mut arena = Arena::new();
         let idx = arena.push("test".as_bytes());
         let idx2 = arena.push("test2".as_bytes());
-        assert_eq!(arena.get(idx), "test".as_bytes());
-        assert_eq!(arena.get(idx2), "test2".as_bytes(), "{:?}", arena);
+        assert_eq!(&arena[idx], "test".as_bytes());
+        assert_eq!(&arena[idx2], "test2".as_bytes(), "{:?}", arena);
     }
 }

@@ -45,8 +45,8 @@ impl<'a> DFSIter<'a> {
                             panic!("getting 2 chunks of same nibble??");
                         }
                     } else {
-                        let data1 = self.trie.arena().get(nibble.data);
-                        let data2 = self.trie.arena().get(e.nibble.data);
+                        let data1 = &self.trie.arena()[nibble.data];
+                        let data2 = &self.trie.arena()[e.nibble.data];
                         buffer.extend_from_slice(&data1[nibble.start / 2..nibble.end / 2]);
                         if nibble.end % 2 == 1 && (e.nibble.start - count) % 2 == 1 {
                             buffer.push(
@@ -68,7 +68,7 @@ impl<'a> DFSIter<'a> {
         }
 
         if let Some(leaf) = leaf {
-            let data = self.trie.arena().get(leaf.nibble.data);
+            let data = &self.trie.arena()[leaf.nibble.data];
             if start {
                 Cow::Borrowed(data)
             } else if leaf.nibble.data == nibble.data {
@@ -79,7 +79,7 @@ impl<'a> DFSIter<'a> {
                     Cow::Owned(buffer)
                 }
             } else {
-                let data1 = self.trie.arena().get(nibble.data);
+                let data1 = &self.trie.arena()[nibble.data];
                 buffer.extend_from_slice(&data1[nibble.start / 2..nibble.end / 2]);
                 if nibble.end % 2 == 1 && (leaf.nibble.start - count) % 2 == 1 {
                     buffer.push(
@@ -91,21 +91,18 @@ impl<'a> DFSIter<'a> {
                 Cow::Owned(buffer)
             }
         } else {
-            let data1 = self.trie.arena().get(nibble.data);
+            let data1 = &self.trie.arena()[nibble.data];
             buffer.extend_from_slice(&data1[nibble.start / 2..nibble.end / 2]);
             Cow::Owned(buffer)
         }
     }
 
     fn branch_item(&self, value: usize) -> (Cow<'a, [u8]>, &'a [u8]) {
-        (self.build_key(None), self.trie.arena().get(value))
+        (self.build_key(None), &self.trie.arena()[value])
     }
 
     fn leaf_item(&mut self, leaf: &'a Leaf) -> (Cow<'a, [u8]>, &'a [u8]) {
-        (
-            self.build_key(Some(leaf)),
-            self.trie.arena().get(leaf.value),
-        )
+        (self.build_key(Some(leaf)), &self.trie.arena()[leaf.value])
     }
 }
 
