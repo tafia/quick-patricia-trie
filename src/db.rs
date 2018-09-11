@@ -1,19 +1,13 @@
 use arena::Arena;
 use keccak_hash::KECCAK_NULL_RLP;
 use node::{Branch, Extension, Leaf, Node};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::mem;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Index {
     Hash(usize),
     Memory(usize),
-}
-
-impl Default for Index {
-    fn default() -> Self {
-        Index::Hash(0)
-    }
 }
 
 /// A Merkle Storage
@@ -24,6 +18,7 @@ impl Default for Index {
 pub struct Db {
     hash: HashMap<usize, Node>,
     memory: Vec<Node>,
+    empty: usize,
     root: Index,
 }
 
@@ -36,11 +31,19 @@ impl Db {
             hash,
             memory: Vec::new(),
             root: Index::Hash(idx),
+            empty: idx,
         }
     }
 
-    pub fn root(&self) -> Index {
+    pub fn root_index(&self) -> Index {
         self.root
+    }
+
+    pub fn root<'a>(&self, arena: &'a Arena) -> Option<&'a [u8]> {
+        match self.root_index() {
+            Index::Memory(_) => None,
+            Index::Hash(idx) => Some(arena.get(idx)),
+        }
     }
 
     pub fn get<'a>(&'a self, key: &Index) -> Option<&'a Node> {
@@ -111,30 +114,37 @@ impl Db {
     }
 
     /// Commit all the in memory nodes into hash db
-    pub fn commit<'a>(&mut self, arena: &'a mut Arena) -> Option<&'a [u8]> {
-        // create a queue of nodes to commit
-        let mut indexes = vec![None; self.memory.len()];
-        let mut queue = self.memory.drain(..).enumerate().collect::<VecDeque<_>>();
-        while let Some((i, node)) = queue.pop_back() {
-            match node.try_hash(arena, &indexes) {
-                None => queue.push_front((i, node)),
-                Some(idx_hash) => {
-                    self.hash.insert(idx_hash, node);
-                    indexes[i] = Some(idx_hash);
-                }
-            }
-        }
+    pub fn commit(&mut self, arena: &mut Arena) {
+        let mut index = self.root.clone();
+        self.commit_node(&mut index, arena);
+        self.memory.clear();
+        self.root = index;
+    }
 
-        match self.root {
-            Index::Memory(i) => {
-                if let Some(i) = indexes[i] {
-                    self.root = Index::Hash(i);
-                    Some(arena.get(i))
-                } else {
-                    None
+    fn commit_node(&mut self, index: &mut Index, arena: &mut Arena) {
+        let mut node = match index.clone() {
+            Index::Hash(_) => return,
+            Index::Memory(i) => mem::replace(&mut self.memory[i], Node::Empty),
+        };
+
+        let idx = match node {
+            Node::Leaf(ref leaf) => leaf.hash(arena),
+            Node::Branch(ref mut branch) => {
+                for k in branch.keys.iter_mut() {
+                    if let Some(ref mut k) = k {
+                        self.commit_node(k, arena);
+                    }
                 }
+                branch.hash(arena)
             }
-            Index::Hash(i) => Some(arena.get(i)),
-        }
+            Node::Extension(ref mut ext) => {
+                self.commit_node(&mut ext.key, arena);
+                ext.hash_or_empty(arena, self.empty)
+            }
+            Node::Empty => self.empty,
+        };
+
+        self.hash.insert(idx, node);
+        *index = Index::Hash(idx);
     }
 }

@@ -1,5 +1,6 @@
 use arena::Arena;
 use db::Db;
+use iter::DFSIter;
 use nibbles::Nibble;
 use node::{Branch, Extension, Leaf, Node};
 use std::mem;
@@ -22,9 +23,17 @@ impl Trie {
         &self.db
     }
 
+    pub fn arena(&self) -> &Arena {
+        &self.arena
+    }
+
+    pub fn root(&self) -> Option<&[u8]> {
+        self.db.root(&self.arena)
+    }
+
     /// Get the item corresponding to that nibble
     pub fn get(&self, mut path: Nibble, arena: &Arena) -> Option<&[u8]> {
-        let mut key = self.db.root();
+        let mut key = self.db.root_index();
         loop {
             debug!("searching key {:?}", key);
             match self.db.get(&key)? {
@@ -62,7 +71,7 @@ impl Trie {
     /// Insert a new leaf
     pub fn insert(&mut self, leaf: Leaf, arena: &Arena) -> Option<&[u8]> {
         let value = self.arena.push(arena.get(leaf.value));
-        let mut key = self.db.root();
+        let mut key = self.db.root_index();
         let mut path = leaf.nibble;
 
         enum Action {
@@ -268,8 +277,12 @@ impl Trie {
         None
     }
 
-    pub fn commit(&mut self) -> Option<&[u8]> {
+    pub fn commit(&mut self) {
         self.db.commit(&mut self.arena)
+    }
+
+    pub fn iter(&self) -> DFSIter {
+        DFSIter::new(self)
     }
 
     // /// Remove the item corresponding to that nibble
@@ -280,7 +293,7 @@ impl Trie {
     //     // - if node = Branch && value is Some => set value to None
     //     // - if node = Branch && value is None => do nothing
     //     let (is_branch, key) = {
-    //         let mut key = &Db::root();
+    //         let mut key = &Db::root_index();
     //         let mut path = path.as_slice();
     //         let is_branch = loop {
     //             match self.db.get(key)? {
@@ -327,6 +340,7 @@ mod test {
 
     use super::*;
     use db::Index;
+    use std::str::from_utf8;
     use std::sync::{Once, ONCE_INIT};
 
     static INIT: Once = ONCE_INIT;
@@ -362,31 +376,61 @@ mod test {
 
         let mut trie = Trie::new();
 
-        assert_eq!(trie.db.root(), Index::Hash(1));
+        assert_eq!(trie.db.root_index(), Index::Hash(1));
+
+        let inputs = vec![
+            ("test node", "my node"),
+            ("test", "my node short"),
+            ("test node 3", "my node long"),
+        ];
 
         let mut arena = Arena::new();
-        let test_leaf = Leaf::new("test node", "my node", &mut arena);
-        trie.insert(test_leaf.clone(), &mut arena);
-        node_eq!(&trie, vec![&test_leaf], &arena);
-        assert_eq!(trie.db.root(), Index::Memory(0));
+        let leaves = inputs
+            .iter()
+            .map(|(k, v)| Leaf::new(k, v, &mut arena))
+            .collect::<Vec<_>>();
 
-        let test_leaf2 = Leaf::new("test", "my node short", &mut arena);
-        trie.insert(test_leaf2.clone(), &mut arena);
-        node_eq!(&trie, vec![&test_leaf, &test_leaf2], &arena);
-        assert_eq!(trie.db.root(), Index::Memory(0));
+        trie.insert(leaves[0].clone(), &mut arena);
+        node_eq!(&trie, &leaves[..1], &arena);
+        assert_eq!(trie.root(), None);
 
-        let test_leaf3 = Leaf::new("test node 3", "my node long", &mut arena);
-        trie.insert(test_leaf3.clone(), &mut arena);
-        node_eq!(&trie, vec![&test_leaf, &test_leaf2, &test_leaf3], &arena);
-        assert_eq!(trie.db.root(), Index::Memory(0));
+        trie.insert(leaves[1].clone(), &mut arena);
+        node_eq!(&trie, &leaves[..2], &arena);
+        assert_eq!(trie.root(), None);
 
+        trie.insert(leaves[2].clone(), &mut arena);
+        node_eq!(&trie, &leaves[..3], &arena);
+        assert_eq!(trie.root(), None);
+
+        trie.commit();
         assert_eq!(
-            trie.commit().unwrap(),
-            [
-                55, 30, 154, 189, 178, 144, 235, 49, 56, 30, 179, 45, 122, 76, 77, 4, 177, 6, 166,
-                164, 65, 4, 191, 80, 163, 159, 104, 211, 120, 125, 101, 60
-            ].as_ref()
+            trie.root(),
+            Some(
+                [55, 30, 154, 189, 178, 144, 235, 49, 56, 30, 179, 45, 122, 76, 77, 4, 177, 6, 166, 164, 65, 4, 191, 80, 163, 159, 104, 211, 120, 125, 101, 60].as_ref()
+            )
         );
-        assert_eq!(trie.db.root(), Index::Hash(11));
+
+        let items = trie.iter().collect::<Vec<_>>();
+        'it: for (k1, v1) in items {
+            for (k2, v2) in &inputs {
+                if v1 == v2.as_bytes() {
+                    if k1 != k2.as_bytes() {
+                        panic!(
+                            "key differ for value '{}':\n'{}' != '{:?}')",
+                            v2,
+                            k2,
+                            from_utf8(&k1)
+                        );
+                    } else {
+                        continue 'it;
+                    }
+                }
+            }
+            panic!(
+                "Cannot find items ({:?} {:?})",
+                from_utf8(&k1),
+                from_utf8(v1)
+            );
+        }
     }
 }

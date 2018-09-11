@@ -30,27 +30,16 @@ impl Branch {
 
     /// RLP encode the branch
     ///
-    /// Returns None if any key is not hashed
-    pub fn try_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
-        let mut keys = Vec::with_capacity(16);
+    /// Ignores Memory nodes
+    pub fn hash(&mut self, arena: &mut Arena) -> usize {
+        let mut stream = RlpStream::new_list(17);
         for k in self.keys.iter() {
             match k {
-                Some(Index::Memory(ref i)) => match indexes[*i] {
-                    Some(k) => keys.push(Some(k)),
-                    None => return None,
-                },
-                Some(Index::Hash(ref k)) => keys.push(Some(*k)),
-                None => keys.push(None),
-            }
-        }
-        let mut stream = RlpStream::new_list(17);
-        for k in keys.into_iter() {
-            match k {
-                None => {
-                    stream.append_empty_data();
+                Some(Index::Hash(i)) => {
+                    stream.append_raw(&arena.get(*i), 1);
                 }
-                Some(i) => {
-                    stream.append_raw(&arena.get(i), 1);
+                _ => {
+                    stream.append_empty_data();
                 }
             }
         }
@@ -62,7 +51,7 @@ impl Branch {
                 stream.append(&arena.get(*i));
             }
         }
-        Some(hash_or_inline(&stream.drain(), arena))
+        hash_or_inline(&stream.drain(), arena)
     }
 }
 
@@ -82,7 +71,7 @@ impl Leaf {
     /// RLP encode the leaf
     ///
     /// Always work
-    pub fn try_hash(&self, arena: &mut Arena) -> usize {
+    pub fn hash(&self, arena: &mut Arena) -> usize {
         let mut stream = RlpStream::new();
         let buffer = self.nibble.encoded(true, arena);
         stream
@@ -101,18 +90,11 @@ pub struct Extension {
 
 impl Extension {
     /// RLP encode the extension
-    ///
-    /// Returns None if the key is not hashed
-    pub fn try_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
-        let key = match self.key {
-            Index::Hash(ref key) => *key,
-            Index::Memory(ref i) => {
-                if let Some(k) = indexes[*i] {
-                    k
-                } else {
-                    return None;
-                }
-            }
+    pub fn hash_or_empty(&mut self, arena: &mut Arena, empty: usize) -> usize {
+        let key = if let Index::Hash(i) = self.key {
+            i
+        } else {
+            return empty;
         };
         let mut stream = RlpStream::new();
         let buffer = self.nibble.encoded(false, arena);
@@ -120,22 +102,7 @@ impl Extension {
             .begin_list(2)
             .append(&buffer)
             .append_raw(&arena.get(key), 1);
-        Some(hash_or_inline(&stream.drain(), arena))
-    }
-}
-
-impl Node {
-    pub fn try_hash(&self, arena: &mut Arena, indexes: &[Option<usize>]) -> Option<usize> {
-        match self {
-            Node::Leaf(leaf) => Some(leaf.try_hash(arena)),
-            Node::Extension(extension) => extension.try_hash(arena, indexes),
-            Node::Branch(branch) => branch.try_hash(arena, indexes),
-            Node::Empty => {
-                let mut stream = RlpStream::new();
-                stream.append_empty_data();
-                Some(hash_or_inline(&stream.drain(), arena))
-            }
-        }
+        hash_or_inline(&stream.drain(), arena)
     }
 }
 
