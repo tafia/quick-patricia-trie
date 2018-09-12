@@ -3,6 +3,9 @@ name = "quick-patricia-trie"
 version = "0.1.0"
 authors = ["Johann Tuffe <tafia973@gmail.com>"]
 
+[workspace]
+members = [ ".", "criterion_benches"]
+
 [dependencies]
 log = "0.4.4"
 # rlp = { path = "../parity-common/rlp" }

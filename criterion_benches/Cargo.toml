@@ -1,0 +1,21 @@
+[package]
+name = "bench_particia"
+version = "0.1.0"
+authors = ["Johann Tuffe <tafia973@gmail.com>"]
+
+[dev-dependencies]
+criterion = "0.2"
+quick-patricia-trie = { path = ".." }
+patricia-trie-ethereum = "0.1.0"
+ethereum-types = "0.3"
+trie-standardmap = "0.1.1"
+patricia-trie = "0.2.2"
+keccak-hash = "0.1.2"
+keccak-hasher = "0.1.1"
+memorydb = "0.2.1"
+parity-bytes = "0.1.0"
+hashdb = "0.2.1"
+
+[[bench]]
+name = "fill"
+harness = false
