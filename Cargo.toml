@@ -5,10 +5,12 @@ authors = ["Johann Tuffe <tafia973@gmail.com>"]
 
 [dependencies]
 log = "0.4.4"
-rlp = { path = "../parity-common/rlp" }
-# rlp = "0.2.4"
+# rlp = { path = "../parity-common/rlp" }
+rlp = "0.2.4"
 keccak-hash = "0.1.2"
 plain_hasher = "0.2.0"
 
 [dev-dependencies]
 env_logger = "0.5.13"
+triehash = { version = "0.2.3", default-features = false }
+keccak-hasher = "0.1.1"

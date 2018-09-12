@@ -29,11 +29,10 @@ impl Nibble {
         arena: &'a A,
     ) -> impl Iterator<Item = u8> + 'a {
         let data = &arena[self.data];
-        data[self.start / 2..self.end / 2 + self.end % 2]
-            .iter()
+        data.iter()
             .flat_map(|b| Some(b >> 4).into_iter().chain(Some(b & 0x0F).into_iter()))
-            .skip(self.start % 1)
-            .take(self.len())
+            .take(self.end)
+            .skip(self.start)
     }
 
     pub fn pop_front<A: Index<usize, Output = [u8]>>(&self, arena: &A) -> Option<(u8, Nibble)> {
@@ -63,9 +62,9 @@ impl Nibble {
         }
     }
 
-    pub fn split_at(&self, n: usize) -> (Self, Option<Self>) {
-        let n = self.start + n;
-        if n > self.end {
+    pub fn split_at(&self, mut n: usize) -> (Self, Option<Self>) {
+        n = self.start + n;
+        if n >= self.end {
             (self.clone(), None)
         } else {
             (
@@ -133,28 +132,62 @@ impl Nibble {
                     buf.push(b);
                     i += 2;
                 }
+                buf.push(data[i] << 4);
             }
             _ => (),
         }
         buf
     }
 
-    // pub fn decode(data: &'a [u8]) -> (bool, Self) {
-    //     unimplemented!()
-    //     // assert!(!data.is_empty(), "Cannot decode empty slice");
-    //     // match data[0] & 0xF0 {
-    //     //     0x00 => (false, Nibble::Even(&data[1..])),
-    //     //     0x10 => (false, Nibble::Left(data[0] & 0xF0, &data[1..])),
-    //     //     0x20 => (true, Nibble::Even(&data[1..])),
-    //     //     0x30 => (true, Nibble::Left(data[0] & 0xF0, &data[1..])),
-    //     //     s => panic!("Cannot decode slice starting with {:X}", s),
-    //     // }
-    // }
+    /// Decode a slice into a nibble, return true if it is a leaf
+    pub fn from_encoded<A>(data: usize, arena: &A) -> (bool, Self)
+    where
+        A: Index<usize, Output = [u8]>,
+    {
+        let bytes = &arena[data];
+        assert!(!bytes.is_empty(), "Cannot decode empty slice");
+        match bytes[0] & 0xF0 {
+            0x00 => (
+                false,
+                Nibble {
+                    data,
+                    start: 2,
+                    end: bytes.len() * 2,
+                },
+            ),
+            0x10 => (
+                false,
+                Nibble {
+                    data,
+                    start: 1,
+                    end: bytes.len() * 2,
+                },
+            ),
+            0x20 => (
+                true,
+                Nibble {
+                    data,
+                    start: 2,
+                    end: bytes.len() * 2,
+                },
+            ),
+            0x30 => (
+                true,
+                Nibble {
+                    data,
+                    start: 1,
+                    end: bytes.len() * 2,
+                },
+            ),
+            s => panic!("Cannot decode slice starting with {:X}", s),
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    static D: &'static [u8; 3] = &[0x01u8, 0x23, 0x45];
 
     #[test]
     fn pop_front() {
@@ -189,5 +222,27 @@ mod test {
         let (left, right) = nibble.split_at(4);
         assert_eq!(left, Nibble { end: 4, ..nibble });
         assert_eq!(right.unwrap(), Nibble { start: 4, ..nibble });
+    }
+
+    #[test]
+    fn encoded() {
+        let mut arena = Arena::new();
+        let n = Nibble::new(D, &mut arena);
+        assert_eq!(&n.encoded(false, &arena), &[0x00, 0x01, 0x23, 0x45]);
+        assert_eq!(&n.encoded(true, &arena), &[0x20, 0x01, 0x23, 0x45]);
+        let n = n.pop_front(&arena).unwrap().1;
+        assert_eq!(&n.encoded(false, &arena), &[0x11, 0x23, 0x45]);
+        assert_eq!(&n.encoded(true, &arena), &[0x31, 0x23, 0x45]);
+    }
+
+    #[test]
+    fn iter_nibble() {
+        let mut arena = Arena::new();
+        let mut n = Nibble::new(D, &mut arena);
+        assert_eq!(n.iter(&arena).collect::<Vec<_>>(), vec![0, 1, 2, 3, 4, 5]);
+        n.start += 1;
+        assert_eq!(n.iter(&arena).collect::<Vec<_>>(), vec![1, 2, 3, 4, 5]);
+        n.end -= 1;
+        assert_eq!(n.iter(&arena).collect::<Vec<_>>(), vec![1, 2, 3, 4]);
     }
 }

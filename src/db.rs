@@ -1,5 +1,5 @@
 use arena::Arena;
-use keccak_hash::KECCAK_NULL_RLP;
+use keccak_hash::{keccak, H256, KECCAK_NULL_RLP};
 use node::{Branch, Extension, Leaf, Node};
 use std::collections::HashMap;
 use std::mem;
@@ -127,24 +127,42 @@ impl Db {
             Index::Memory(i) => mem::replace(&mut self.memory[i], Node::Empty),
         };
 
-        let idx = match node {
-            Node::Leaf(ref leaf) => leaf.hash(arena),
+        let encoded_idx = match node {
+            Node::Leaf(ref leaf) => leaf.encoded(arena),
             Node::Branch(ref mut branch) => {
                 for k in branch.keys.iter_mut() {
                     if let Some(ref mut k) = k {
                         self.commit_node(k, arena);
                     }
                 }
-                branch.hash(arena)
+                branch.encoded(arena)
             }
             Node::Extension(ref mut ext) => {
                 self.commit_node(&mut ext.key, arena);
-                ext.hash_or_empty(arena, self.empty)
+                ext.encoded_or_empty(arena, self.empty)
             }
             Node::Empty => self.empty,
         };
 
-        self.hash.insert(idx, node);
-        *index = Index::Hash(idx);
+        let hash = {
+            let data = &arena[encoded_idx];
+            if *index == self.root || data.len() >= H256::len() {
+                Some(keccak(data))
+            } else {
+                None
+            }
+        };
+
+        if let Some(hash) = hash {
+            let hash_idx = arena.push(hash.as_ref());
+            self.hash.insert(hash_idx, node);
+            *index = Index::Hash(hash_idx);
+        } else {
+            // technically there is no need to save it in the database as
+            // we can directly decode it. On the other hand, it is simpler
+            // to manage this way for the moment.
+            *index = Index::Hash(encoded_idx);
+            self.hash.insert(encoded_idx, node);
+        }
     }
 }

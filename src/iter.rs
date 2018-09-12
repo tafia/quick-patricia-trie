@@ -1,4 +1,3 @@
-use nibbles::Nibble;
 use node::{Branch, Extension, Leaf, Node};
 use std::borrow::Cow;
 use trie::Trie;
@@ -27,81 +26,35 @@ impl<'a> DFSIter<'a> {
     }
 
     fn build_key(&self, leaf: Option<&Leaf>) -> Cow<'a, [u8]> {
-        let mut start = true;
-        let mut nibble = Nibble::default();
-        let mut buffer = Vec::new();
-        let mut count = 0;
+        let mut buffer = Vec::with_capacity(64);
         for n in self.stack.iter() {
-            if let NodeIter::Extension(e) = n {
-                if start {
-                    nibble = e.nibble.clone();
-                    nibble.start -= count;
-                    start = false;
-                } else {
-                    if nibble.data == e.nibble.data {
-                        if nibble.end + count == e.nibble.start {
-                            nibble.end = e.nibble.end;
-                        } else {
-                            panic!("getting 2 chunks of same nibble??");
-                        }
-                    } else {
-                        let data1 = &self.trie.arena()[nibble.data];
-                        let data2 = &self.trie.arena()[e.nibble.data];
-                        buffer.extend_from_slice(&data1[nibble.start / 2..nibble.end / 2]);
-                        if nibble.end % 2 == 1 && (e.nibble.start - count) % 2 == 1 {
-                            buffer.push(
-                                data1[nibble.end / 2] & 0xF0
-                                    | data2[(e.nibble.start - count) / 2] & 0x0F,
-                            );
-                            nibble = e.nibble.clone();
-                            nibble.start += 1;
-                        } else {
-                            nibble = e.nibble.clone();
-                        }
-                        nibble.start -= count;
-                    }
+            match n {
+                NodeIter::Branch(_, Some(n)) => {
+                    debug!("one branch");
+                    buffer.push(*n);
                 }
-                count = 0;
-            } else {
-                count += 1;
+                NodeIter::Extension(e) => {
+                    debug!("one extension {}", e.nibble.len());
+                    buffer.extend(e.nibble.iter(self.trie.arena()));
+                }
+                _ => (),
             }
         }
-
         if let Some(leaf) = leaf {
-            let data = &self.trie.arena()[leaf.nibble.data];
-            if start {
-                Cow::Borrowed(data)
-            } else if leaf.nibble.data == nibble.data {
-                if buffer.is_empty() {
-                    Cow::Borrowed(data)
-                } else {
-                    buffer.extend_from_slice(&data[nibble.start / 2..nibble.end / 2]);
-                    Cow::Owned(buffer)
-                }
-            } else {
-                let data1 = &self.trie.arena()[nibble.data];
-                buffer.extend_from_slice(&data1[nibble.start / 2..nibble.end / 2]);
-                if nibble.end % 2 == 1 && (leaf.nibble.start - count) % 2 == 1 {
-                    buffer.push(
-                        data1[nibble.end / 2] & 0xF0 | data[(leaf.nibble.start - count) / 2] & 0x0F,
-                    );
-                }
-                buffer
-                    .extend_from_slice(&data[(leaf.nibble.start - count) / 2..leaf.nibble.end / 2]);
-                Cow::Owned(buffer)
-            }
-        } else {
-            let data1 = &self.trie.arena()[nibble.data];
-            buffer.extend_from_slice(&data1[nibble.start / 2..nibble.end / 2]);
-            Cow::Owned(buffer)
+            buffer.extend(leaf.nibble.iter(self.trie.arena()));
         }
+        debug!("buffer len: {}", buffer.len());
+        debug!("buffer {:?}", buffer);
+        Cow::Owned(buffer.chunks(2).map(|w| w[0] << 4 | w[1]).collect())
     }
 
     fn branch_item(&self, value: usize) -> (Cow<'a, [u8]>, &'a [u8]) {
+        debug!("getting branch item");
         (self.build_key(None), &self.trie.arena()[value])
     }
 
     fn leaf_item(&mut self, leaf: &'a Leaf) -> (Cow<'a, [u8]>, &'a [u8]) {
+        debug!("getting leaf item");
         (self.build_key(Some(leaf)), &self.trie.arena()[leaf.value])
     }
 }
@@ -117,14 +70,11 @@ impl<'a> Iterator for DFSIter<'a> {
             loop {
                 match self.stack.pop()? {
                     NodeIter::Branch(branch, n) => {
-                        if let Some(p) = branch
-                            .keys
-                            .iter()
-                            .skip(n.map_or(0, |n| n as usize + 1))
-                            .position(|k| k.is_some())
-                        {
-                            self.stack.push(NodeIter::Branch(branch, Some(p as u8)));
-                            break branch.keys[p]?;
+                        let start = n.map_or(0, |n| n as usize + 1);
+                        if let Some(p) = branch.keys.iter().skip(start).position(|k| k.is_some()) {
+                            self.stack
+                                .push(NodeIter::Branch(branch, Some((start + p) as u8)));
+                            break branch.keys[start + p]?;
                         }
                     }
                     NodeIter::Extension(_) => (),

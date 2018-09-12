@@ -1,8 +1,8 @@
 use arena::Arena;
 use db::Index;
-use keccak_hash::{keccak, H256};
+use keccak_hash::H256;
 use nibbles::Nibble;
-use rlp::RlpStream;
+use rlp::{DecoderError, Prototype, Rlp, RlpStream};
 
 /// A trie `Node`
 #[derive(Debug)]
@@ -11,6 +11,51 @@ pub enum Node {
     Branch(Branch),
     Leaf(Leaf),
     Extension(Extension),
+}
+
+impl Node {
+    pub fn try_from_encoded(data: Vec<u8>, arena: &mut Arena) -> Option<Self> {
+        match Node::from_encoded_res(&data, arena) {
+            Ok(n) => Some(n),
+            Err(e) => {
+                error!("Error decoding rlp node {}", e);
+                None
+            }
+        }
+    }
+
+    fn from_encoded_res(data: &[u8], arena: &mut Arena) -> Result<Self, DecoderError> {
+        let r = Rlp::new(data);
+        match r.prototype()? {
+            Prototype::List(2) => {
+                let nibble = arena.push(r.at(0)?.data()?);
+                let value = arena.push(r.at(1)?.data()?);
+                match Nibble::from_encoded(nibble, arena) {
+                    (true, nibble) => Ok(Node::Leaf(Leaf { nibble, value })),
+                    (false, nibble) => Ok(Node::Extension(Extension {
+                        nibble,
+                        key: Index::Hash(value),
+                    })),
+                }
+            }
+            Prototype::List(17) => {
+                let mut branch = Branch::new();
+                for i in 0..16 {
+                    let key = r.at(i)?.as_raw();
+                    if !key.is_empty() {
+                        branch.keys[i] = Some(Index::Hash(arena.push(key)));
+                    }
+                }
+                let value = r.at(16)?;
+                if !value.is_empty() {
+                    branch.value = Some(arena.push(value.data()?));
+                }
+                Ok(Node::Branch(branch))
+            }
+            Prototype::Data(0) => Ok(Node::Empty),
+            _ => Err(DecoderError::Custom("Rlp is not valid.")),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -31,12 +76,18 @@ impl Branch {
     /// RLP encode the branch
     ///
     /// Ignores Memory nodes
-    pub fn hash(&mut self, arena: &mut Arena) -> usize {
+    pub fn encoded(&mut self, arena: &mut Arena) -> usize {
         let mut stream = RlpStream::new_list(17);
         for k in self.keys.iter() {
             match k {
                 Some(Index::Hash(i)) => {
-                    stream.append_raw(&&arena[*i], 1);
+                    let data = &arena[*i];
+                    if data.len() < H256::len() {
+                        // inlined
+                        stream.append_raw(&data, 1);
+                    } else {
+                        stream.append(&data);
+                    }
                 }
                 _ => {
                     stream.append_empty_data();
@@ -51,7 +102,7 @@ impl Branch {
                 stream.append(&&arena[*i]);
             }
         }
-        hash_or_inline(&stream.drain(), arena)
+        arena.push(&stream.drain())
     }
 }
 
@@ -71,14 +122,14 @@ impl Leaf {
     /// RLP encode the leaf
     ///
     /// Always work
-    pub fn hash(&self, arena: &mut Arena) -> usize {
+    pub fn encoded(&self, arena: &mut Arena) -> usize {
         let mut stream = RlpStream::new();
         let buffer = self.nibble.encoded(true, arena);
         stream
             .begin_list(2)
             .append(&buffer)
             .append(&&arena[self.value]);
-        hash_or_inline(&stream.drain(), arena)
+        arena.push(&stream.drain())
     }
 }
 
@@ -90,27 +141,26 @@ pub struct Extension {
 
 impl Extension {
     /// RLP encode the extension
-    pub fn hash_or_empty(&mut self, arena: &mut Arena, empty: usize) -> usize {
+    pub fn encoded_or_empty(&mut self, arena: &mut Arena, empty: usize) -> usize {
         let key = if let Index::Hash(i) = self.key {
             i
         } else {
+            warn!("hashing memory extension");
             return empty;
         };
-        let mut stream = RlpStream::new();
-        let buffer = self.nibble.encoded(false, arena);
-        stream
-            .begin_list(2)
-            .append(&buffer)
-            .append_raw(&&arena[key], 1);
-        hash_or_inline(&stream.drain(), arena)
-    }
-}
 
-#[inline]
-fn hash_or_inline(data: &[u8], arena: &mut Arena) -> usize {
-    if data.len() <= H256::len() {
-        arena.push(data)
-    } else {
-        arena.push(keccak(data).as_ref())
+        let mut stream = RlpStream::new_list(2);
+        stream.append(&self.nibble.encoded(false, arena));
+
+        {
+            let key = &arena[key];
+            if key.len() < H256::len() {
+                // inline already encoded data
+                stream.append_raw(key, 1);
+            } else {
+                stream.append(&key);
+            }
+        }
+        arena.push(&stream.drain())
     }
 }
