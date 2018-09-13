@@ -34,9 +34,21 @@ benches as written in the original parity crates.
 
 ![trie_insertion_mir_1k][6]
 
+## Trie insertion six high
+
+![trie_insertion_six_high][7]
+
+## Trie insertion six mid
+
+![trie_insertion_six_mid][8]
+
+## Trie insertion random mid
+
+![trie_insertion_random_mid][9]
+
 ## Iterator
 
-![iter][7]
+![iter][10]
 
 [1]: https://github.com/ethereum/wiki/wiki/Patricia-Tree
 [2]: https://crates.io/crates/patricia-trie
@@ -44,4 +56,7 @@ benches as written in the original parity crates.
 [4]: /criterion_benches
 [5]: /criterion_benches/target/criterion/insertion_32_mir_1k/report/violin.svg
 [6]: /criterion_benches/target/criterion/insertion_32_ran_1k/report/violin.svg
-[7]: /criterion_benches/target/criterion/iter/report/violin.svg
+[7]: /criterion_benches/target/criterion/insertion_six_high/report/violin.svg
+[8]: /criterion_benches/target/criterion/insertion_six_mid/report/violin.svg
+[9]: /criterion_benches/target/criterion/insertion_random_mid/report/violin.svg
+[10]: /criterion_benches/target/criterion/iter/report/violin.svg
