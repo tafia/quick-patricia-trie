@@ -1,5 +1,5 @@
 use arena::{Arena, ArenaSlice};
-use db::Db;
+use db::{Db, Index};
 use iter::DFSIter;
 use nibbles::Nibble;
 use node::{Branch, Extension, Leaf, Node};
@@ -10,6 +10,14 @@ use std::mem;
 pub struct Trie {
     arena: Arena,
     db: Db,
+}
+
+#[derive(Debug)]
+enum Action {
+    Root,
+    BranchKey(u8, Leaf),
+    Extension(Extension, usize),
+    Leaf(Leaf, usize),
 }
 
 impl Trie {
@@ -60,7 +68,7 @@ impl Trie {
                         key = branch.keys[u as usize]?;
                         path = n;
                     } else {
-                        return branch.value.as_ref().map(|idx| &self.arena[*idx]);
+                        return branch.value.map(|idx| &self.arena[idx]);
                     }
                 }
                 Node::Extension(ref extension) => {
@@ -109,14 +117,6 @@ impl Trie {
         let value = self.arena.push(&arena[leaf.value]);
         let mut key = self.db.root_index();
         let mut path = leaf.nibble;
-
-        #[derive(Debug)]
-        enum Action {
-            Root,
-            BranchKey(u8, Leaf),
-            Extension(Extension, usize),
-            Leaf(Leaf, usize),
-        }
 
         let action = loop {
             match self.db.get_mut(&mut key) {
@@ -186,6 +186,21 @@ impl Trie {
                 _ => break Action::Root,
             }
         };
+
+        self.execute_action(action, key, value, path, arena)
+    }
+
+    fn execute_action<A>(
+        &mut self,
+        action: Action,
+        mut key: Index,
+        value: usize,
+        path: Nibble,
+        arena: &A,
+    ) -> Option<&[u8]>
+    where
+        A: ::std::ops::Index<usize, Output = [u8]>,
+    {
         debug!(" -- Inserting {:?}", action);
         match action {
             Action::BranchKey(u, new_leaf) => {
@@ -267,7 +282,6 @@ impl Trie {
                 }
                 if offset > 0 {
                     let branch_key = self.db.push_node(Node::Branch(branch));
-                    debug!("extension nibble: {:?}", leaf_left);
                     let ext = Extension {
                         nibble: leaf_left,
                         key: branch_key,

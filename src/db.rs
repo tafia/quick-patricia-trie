@@ -55,7 +55,7 @@ impl Db {
 
     /// Get a mutable reference to node at key
     ///
-    /// If the key is hashed, then moves the node into memory first
+    /// The reference index is, if needed, moved out of hash and into memory
     pub fn get_mut<'a>(&'a mut self, key: &mut Index) -> Option<&'a mut Node> {
         match key.clone() {
             Index::Hash(hash) => {
@@ -101,6 +101,9 @@ impl Db {
 
     /// Commit all the in memory nodes into hash db
     pub fn commit(&mut self, arena: &mut Arena) {
+        if let Index::Hash(_) = self.root {
+            return;
+        }
         let mut index = self.root.clone();
         self.commit_node(&mut index, arena);
         self.memory.clear();
