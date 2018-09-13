@@ -1,6 +1,6 @@
 use arena::Arena;
 use keccak_hash::{keccak, H256, KECCAK_NULL_RLP};
-use node::{Branch, Extension, Leaf, Node};
+use node::Node;
 use std::collections::HashMap;
 use std::mem;
 
@@ -81,24 +81,10 @@ impl Db {
         }
     }
 
-    pub fn push_leaf(&mut self, leaf: Leaf) -> Index {
+    pub fn push_node(&mut self, node: Node) -> Index {
         let index = Index::Memory(self.memory.len());
-        debug!("pushing leaf {:?}", index);
-        self.memory.push(Node::Leaf(leaf));
-        index
-    }
-
-    pub fn push_branch(&mut self, branch: Branch) -> Index {
-        let index = Index::Memory(self.memory.len());
-        debug!("pushing branch {:?}", index);
-        self.memory.push(Node::Branch(branch));
-        index
-    }
-
-    pub fn push_extension(&mut self, extension: Extension) -> Index {
-        let index = Index::Memory(self.memory.len());
-        debug!("pushing extension {:?}", index);
-        self.memory.push(Node::Extension(extension));
+        debug!("pushing node {:?}: {:?}", index, node);
+        self.memory.push(node);
         index
     }
 

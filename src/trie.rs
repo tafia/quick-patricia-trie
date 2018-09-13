@@ -189,7 +189,7 @@ impl Trie {
         debug!(" -- Inserting {:?}", action);
         match action {
             Action::BranchKey(u, new_leaf) => {
-                let new_key = self.db.push_leaf(new_leaf);
+                let new_key = self.db.push_node(Node::Leaf(new_leaf));
                 if let Node::Branch(ref mut branch) = self.db.get_mut(&mut key)? {
                     branch.keys[u as usize] = Some(new_key);
                 }
@@ -204,7 +204,7 @@ impl Trie {
 
                 if let Some((u, path)) = path.and_then(|p| p.pop_front(arena)) {
                     let nibble = path.copy(arena, &mut self.arena);
-                    let new_key = self.db.push_leaf(Leaf { nibble, value });
+                    let new_key = self.db.push_node(Node::Leaf(Leaf { nibble, value }));
                     branch.keys[u as usize] = Some(new_key);
                 } else {
                     branch.value = Some(value);
@@ -220,7 +220,7 @@ impl Trie {
                             nibble,
                             key: ext.key,
                         };
-                        self.db.push_extension(ext)
+                        self.db.push_node(Node::Extension(ext))
                     };
                     branch.keys[u as usize] = Some(new_key);
                 } else {
@@ -228,7 +228,7 @@ impl Trie {
                 }
 
                 if offset > 0 {
-                    let branch_key = self.db.push_branch(branch);
+                    let branch_key = self.db.push_node(Node::Branch(branch));
                     let ext = Extension {
                         nibble: ext_left,
                         key: branch_key,
@@ -246,7 +246,7 @@ impl Trie {
                 if let Some((u, path)) = path.and_then(|p| p.pop_front(arena)) {
                     debug!("new leaf: {:?}", path);
                     let nibble = path.copy(arena, &mut self.arena);
-                    let new_key = self.db.push_leaf(Leaf { nibble, value });
+                    let new_key = self.db.push_node(Node::Leaf(Leaf { nibble, value }));
                     branch.keys[u as usize] = Some(new_key);
                 } else {
                     debug!("new leaf as branch value");
@@ -259,14 +259,14 @@ impl Trie {
                         nibble,
                         value: leaf.value,
                     };
-                    let new_key = self.db.push_leaf(leaf);
+                    let new_key = self.db.push_node(Node::Leaf(leaf));
                     branch.keys[u as usize] = Some(new_key);
                 } else {
                     debug!("existing leaf as branch value");
                     branch.value = Some(leaf.value);
                 }
                 if offset > 0 {
-                    let branch_key = self.db.push_branch(branch);
+                    let branch_key = self.db.push_node(Node::Branch(branch));
                     debug!("extension nibble: {:?}", leaf_left);
                     let ext = Extension {
                         nibble: leaf_left,

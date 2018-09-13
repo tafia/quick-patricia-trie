@@ -13,11 +13,11 @@ extern crate trie_standardmap;
 
 use criterion::{Bencher, Criterion, Fun};
 
-use parity_bytes::Bytes;
 use ethtrie::{TrieDB, TrieDBMut};
 use keccak_hash::{keccak, H256};
 use keccak_hasher::KeccakHasher;
 use memorydb::MemoryDB;
+use parity_bytes::Bytes;
 use trie::{Trie, TrieMut};
 use trie_standardmap::{Alphabet, StandardMap, ValueMode};
 
