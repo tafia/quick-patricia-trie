@@ -1,4 +1,4 @@
-# quick-patricia-tree
+# quick-patricia-trie
 
 A toy implementation of a patricia tree as [used in ethereum][1].
 
