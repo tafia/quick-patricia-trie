@@ -39,27 +39,20 @@ impl Nibble {
         if self.len() == 0 {
             return None;
         }
-        let data = &arena[self.data];
-        let first = data[self.start / 2];
-        if self.start % 2 == 0 {
-            Some((
-                first >> 4,
-                Nibble {
-                    data: self.data,
-                    start: self.start + 1,
-                    end: self.end,
-                },
-            ))
+        let first = arena[self.data][self.start / 2];
+        let first = if self.start % 2 == 0 {
+            first >> 4
         } else {
-            Some((
-                first & 0x0F,
-                Nibble {
-                    data: self.data,
-                    start: self.start + 1,
-                    end: self.end,
-                },
-            ))
-        }
+            first & 0x0F
+        };
+        Some((
+            first,
+            Nibble {
+                data: self.data,
+                start: self.start + 1,
+                end: self.end,
+            },
+        ))
     }
 
     pub fn split_at(&self, mut n: usize) -> (Self, Option<Self>) {
@@ -115,24 +108,22 @@ impl Nibble {
                 buf.extend_from_slice(&data[self.start / 2 + 1..self.end / 2]);
             }
             (0, 1) => {
-                buf.push(data[self.start / 2] & 0x0F | if is_leaf { 0x30 } else { 0x10 });
-                let mut i = self.start;
-                while i < self.end {
-                    let b = data[i] << 4 | data[i + 1] >> 4;
-                    buf.push(b);
-                    i += 2;
-                }
-                buf.push(data[i] << 4);
+                buf.push(data[self.start / 2] >> 4 | if is_leaf { 0x30 } else { 0x10 });
+                buf.extend(
+                    data.windows(2)
+                        .take(self.end / 2)
+                        .skip(self.start / 2)
+                        .map(|w| w[0] << 4 | w[1] >> 4),
+                );
             }
             (1, 1) => {
                 buf.push(if is_leaf { 0x20 } else { 0 });
-                let mut i = self.start;
-                while i < self.end {
-                    let b = data[i] << 4 | data[i + 1] >> 4;
-                    buf.push(b);
-                    i += 2;
-                }
-                buf.push(data[i] << 4);
+                buf.extend(
+                    data.windows(2)
+                        .take(self.end / 2)
+                        .skip(self.start / 2)
+                        .map(|w| w[0] << 4 | w[1] >> 4),
+                );
             }
             _ => (),
         }
@@ -192,20 +183,30 @@ mod test {
     #[test]
     fn pop_front() {
         let mut arena = Arena::new();
-        let idx = arena.push("test".as_bytes());
+        let idx = arena.push(&[0x01, 0x23, 0x45]);
         let nibble = Nibble {
             data: idx,
             start: 0,
-            end: "test".len() * 2,
+            end: 6,
         };
-        let (i, nibble2) = nibble.pop_front(&arena).unwrap();
-        assert_eq!(i, b't' >> 4);
+        let (i, nibble) = nibble.pop_front(&arena).unwrap();
+        assert_eq!(i, 0);
         assert_eq!(
-            nibble2,
+            nibble,
             Nibble {
                 data: idx,
                 start: 1,
-                end: nibble.end
+                end: 6,
+            }
+        );
+        let (i, nibble) = nibble.pop_front(&arena).unwrap();
+        assert_eq!(i, 1);
+        assert_eq!(
+            nibble,
+            Nibble {
+                data: idx,
+                start: 2,
+                end: 6,
             }
         );
     }
@@ -227,12 +228,18 @@ mod test {
     #[test]
     fn encoded() {
         let mut arena = Arena::new();
-        let n = Nibble::new(D, &mut arena);
+        let mut n = Nibble::new(D, &mut arena);
         assert_eq!(&n.encoded(false, &arena), &[0x00, 0x01, 0x23, 0x45]);
         assert_eq!(&n.encoded(true, &arena), &[0x20, 0x01, 0x23, 0x45]);
-        let n = n.pop_front(&arena).unwrap().1;
+        n.start += 1;
         assert_eq!(&n.encoded(false, &arena), &[0x11, 0x23, 0x45]);
         assert_eq!(&n.encoded(true, &arena), &[0x31, 0x23, 0x45]);
+        n.end -= 1;
+        assert_eq!(&n.encoded(false, &arena), &[0x00, 0x12, 0x34]);
+        assert_eq!(&n.encoded(true, &arena), &[0x20, 0x12, 0x34]);
+        n.start += 1;
+        assert_eq!(&n.encoded(false, &arena), &[0x12, 0x34]);
+        assert_eq!(&n.encoded(true, &arena), &[0x32, 0x34]);
     }
 
     #[test]
