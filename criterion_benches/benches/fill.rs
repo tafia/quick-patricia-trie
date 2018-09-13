@@ -14,7 +14,6 @@ extern crate trie_standardmap;
 use criterion::{Bencher, Criterion, Fun};
 
 use parity_bytes::Bytes;
-//use ethereum_types::H256;
 use ethtrie::{TrieDB, TrieDBMut};
 use keccak_hash::{keccak, H256};
 use keccak_hasher::KeccakHasher;
@@ -250,6 +249,7 @@ fn trie_iter(c: &mut Criterion) {
     for i in d.iter() {
         t.insert(&i.0, &i.1);
     }
+    t.commit();
     let quick = Fun::new("quick", move |b: &mut Bencher, _d: &()| {
         b.iter(|| {
             for n in t.iter() {
@@ -262,7 +262,6 @@ fn trie_iter(c: &mut Criterion) {
     c.bench_functions("iter", functions, ());
 }
 
-//criterion_group!(benches, trie_insertion_32_mir_1k);
 criterion_group!(
     benches,
     trie_insertion_32_mir_1k,
