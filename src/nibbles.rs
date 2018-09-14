@@ -56,7 +56,7 @@ impl Nibble {
     }
 
     pub fn split_at(&self, mut n: usize) -> (Self, Option<Self>) {
-        n = self.start + n;
+        n += self.start;
         if n >= self.end {
             (self.clone(), None)
         } else {

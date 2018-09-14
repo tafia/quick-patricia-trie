@@ -27,7 +27,7 @@ impl<'a> DFSIter<'a> {
 
     fn build_key(&self, leaf: Option<&Leaf>) -> Cow<'a, [u8]> {
         let mut buffer = Vec::with_capacity(64);
-        for n in self.stack.iter() {
+        for n in &self.stack {
             match n {
                 NodeIter::Branch(_, Some(n)) => {
                     debug!("one branch");

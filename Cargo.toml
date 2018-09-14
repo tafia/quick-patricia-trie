@@ -11,7 +11,6 @@ log = "0.4.4"
 # rlp = { path = "../parity-common/rlp" }
 rlp = "0.2.4"
 keccak-hash = "0.1.2"
-plain_hasher = "0.2.0"
 
 [dev-dependencies]
 env_logger = "0.5.13"

@@ -75,7 +75,7 @@ impl Trie {
                     debug!("key {:?}: {:?}", key, extension);
                     let (left, right) = path.split_at(extension.nibble.len());
                     if extension.nibble.eq(&left, &self.arena, arena) {
-                        path = right.unwrap_or(Nibble::default());
+                        path = right.unwrap_or_default();
                         key = extension.key;
                     } else {
                         return None;
@@ -157,7 +157,7 @@ impl Trie {
                             path.len(),
                             extension.nibble.len()
                         );
-                        path = right.unwrap_or(Nibble::default());
+                        path = right.unwrap_or_default();
                         key = extension.key;
                     }
                 }
@@ -187,7 +187,7 @@ impl Trie {
             }
         };
 
-        self.execute_action(action, key, value, path, arena)
+        self.execute_action(action, key, value, &path, arena)
     }
 
     fn execute_action<A>(
@@ -195,7 +195,7 @@ impl Trie {
         action: Action,
         mut key: Index,
         value: usize,
-        path: Nibble,
+        path: &Nibble,
         arena: &A,
     ) -> Option<&[u8]>
     where
@@ -215,7 +215,7 @@ impl Trie {
                 let (_, path) = path.split_at(offset);
                 let (ext_left, ext_right) = ext.nibble.split_at(offset);
 
-                let mut branch = Branch::new();
+                let mut branch = Branch::default();
 
                 if let Some((u, path)) = path.and_then(|p| p.pop_front(arena)) {
                     let nibble = path.copy(arena, &mut self.arena);
@@ -255,7 +255,7 @@ impl Trie {
             }
             Action::Leaf(leaf, offset) => {
                 self.db.remove(&key);
-                let mut branch = Branch::new();
+                let mut branch = Branch::default();
                 debug!("leaf: {:?}, path: {:?}, offset: {}", leaf, path, offset);
                 let (_, path) = path.split_at(offset);
                 if let Some((u, path)) = path.and_then(|p| p.pop_front(arena)) {
@@ -599,7 +599,8 @@ mod test {
                 [
                     239, 218, 198, 132, 179, 205, 251, 214, 82, 69, 141, 191, 115, 22, 225, 130, 4,
                     14, 0, 46, 64, 110, 125, 69, 138, 52, 217, 145, 54, 236, 224, 233
-                ].as_ref()
+                ]
+                    .as_ref()
             ),
         );
 

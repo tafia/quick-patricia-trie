@@ -57,7 +57,7 @@ impl Db {
     ///
     /// The reference index is, if needed, moved out of hash and into memory
     pub fn get_mut<'a>(&'a mut self, key: &mut Index) -> Option<&'a mut Node> {
-        match key.clone() {
+        match *key {
             Index::Hash(hash) => {
                 let node = self.hash.remove(&hash)?;
                 let len = self.memory.len();
@@ -104,14 +104,14 @@ impl Db {
         if let Index::Hash(_) = self.root {
             return;
         }
-        let mut index = self.root.clone();
+        let mut index = self.root;
         self.commit_node(&mut index, arena);
         self.memory.clear();
         self.root = index;
     }
 
     fn commit_node(&mut self, index: &mut Index, arena: &mut Arena) {
-        let mut node = match index.clone() {
+        let mut node = match *index {
             Index::Hash(_) => return,
             Index::Memory(i) => mem::replace(&mut self.memory[i], Node::Empty),
         };
@@ -119,7 +119,7 @@ impl Db {
         let encoded_idx = match node {
             Node::Leaf(ref leaf) => leaf.encoded(arena),
             Node::Branch(ref mut branch) => {
-                for k in branch.keys.iter_mut() {
+                for k in &mut branch.keys {
                     if let Some(ref mut k) = k {
                         self.commit_node(k, arena);
                     }

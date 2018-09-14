@@ -14,7 +14,7 @@ pub enum Node {
 }
 
 impl Node {
-    pub fn try_from_encoded(data: Vec<u8>, arena: &mut Arena) -> Option<Self> {
+    pub fn try_from_encoded(data: &[u8], arena: &mut Arena) -> Option<Self> {
         match Node::from_encoded_res(&data, arena) {
             Ok(n) => Some(n),
             Err(e) => {
@@ -39,7 +39,7 @@ impl Node {
                 }
             }
             Prototype::List(17) => {
-                let mut branch = Branch::new();
+                let mut branch = Branch::default();
                 for i in 0..16 {
                     let key = r.at(i)?.as_raw();
                     if !key.is_empty() {
@@ -58,27 +58,19 @@ impl Node {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Branch {
     pub keys: [Option<Index>; 16],
     pub value: Option<usize>,
 }
 
 impl Branch {
-    pub fn new() -> Self {
-        let keys = [
-            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None, None,
-        ];
-        Branch { keys, value: None }
-    }
-
     /// RLP encode the branch
     ///
     /// Ignores Memory nodes
     pub fn encoded(&mut self, arena: &mut Arena) -> usize {
         let mut stream = RlpStream::new_list(17);
-        for k in self.keys.iter() {
+        for k in &self.keys {
             match k {
                 Some(Index::Hash(i)) => {
                     let data = &arena[*i];

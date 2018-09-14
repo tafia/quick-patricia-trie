@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate log;
 extern crate keccak_hash;
-extern crate plain_hasher;
 extern crate rlp;
 
 #[cfg(test)]
