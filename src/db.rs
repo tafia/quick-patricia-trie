@@ -154,4 +154,74 @@ impl Db {
             self.hash.insert(encoded_idx, node);
         }
     }
+
+    pub fn defragment(&mut self, arena: &mut Arena) {
+        fn append_node_index(node: &Node, indexes: &mut Vec<usize>) {
+            match node {
+                Node::Leaf(l) => {
+                    if l.nibble.len() > 0 {
+                        indexes.push(l.nibble.data);
+                    }
+                    indexes.push(l.value);
+                }
+                Node::Branch(b) => {
+                    indexes.extend(b.keys.iter().filter_map(|k| {
+                        if let Some(Index::Hash(h)) = k {
+                            Some(h)
+                        } else {
+                            None
+                        }
+                    }));
+                    indexes.extend(b.value.clone());
+                }
+                Node::Extension(e) => {
+                    indexes.push(e.nibble.data);
+                    if let Index::Hash(h) = e.key {
+                        indexes.push(h);
+                    }
+                }
+                Node::Empty => (),
+            }
+        }
+
+        let mut used = Vec::with_capacity(self.hash.len() * 2);
+        for (k, v) in &self.hash {
+            used.push(*k);
+            append_node_index(v, &mut used);
+        }
+
+        let map = arena.defragment(used);
+        let hash = self
+            .hash
+            .drain()
+            .map(|(k, mut v)| {
+                match v {
+                    Node::Leaf(ref mut l) => {
+                        l.nibble.data = map[l.nibble.data];
+                        l.value = map[l.value];
+                    }
+                    Node::Branch(ref mut b) => {
+                        for h in b.keys.iter_mut().filter_map(|k| {
+                            if let Some(Index::Hash(ref mut h)) = k {
+                                Some(h)
+                            } else {
+                                None
+                            }
+                        }) {
+                            *h = map[*h];
+                        }
+                        b.value.as_mut().map(|v| *v = map[*v]);
+                    }
+                    Node::Extension(ref mut e) => {
+                        e.nibble.data = map[e.nibble.data];
+                        if let Index::Hash(ref mut h) = e.key {
+                            *h = map[*h];
+                        }
+                    }
+                    Node::Empty => (),
+                }
+                (map[k], v)
+            }).collect();
+        self.hash = hash;
+    }
 }

@@ -27,11 +27,11 @@ impl Trie {
         Trie { arena, db }
     }
 
-    pub fn db(&self) -> &Db {
+    pub(crate) fn db(&self) -> &Db {
         &self.db
     }
 
-    pub fn arena(&self) -> &Arena {
+    pub(crate) fn arena(&self) -> &Arena {
         &self.arena
     }
 
@@ -54,7 +54,7 @@ impl Trie {
     }
 
     /// Get the item corresponding to that nibble
-    pub fn get_nibble<A>(&self, mut path: Nibble, arena: &A) -> Option<&[u8]>
+    fn get_nibble<A>(&self, mut path: Nibble, arena: &A) -> Option<&[u8]>
     where
         A: ::std::ops::Index<usize, Output = [u8]>,
     {
@@ -110,7 +110,7 @@ impl Trie {
     }
 
     /// Insert a new leaf
-    pub fn insert_leaf<A>(&mut self, leaf: Leaf, arena: &A) -> Option<&[u8]>
+    fn insert_leaf<A>(&mut self, leaf: Leaf, arena: &A) -> Option<&[u8]>
     where
         A: ::std::ops::Index<usize, Output = [u8]>,
     {
@@ -306,6 +306,11 @@ impl Trie {
 
     pub fn iter(&self) -> DFSIter {
         DFSIter::new(self)
+    }
+
+    /// Defragment the underlying database
+    pub fn defragment(&mut self) {
+        self.db.defragment(&mut self.arena);
     }
 }
 
@@ -627,5 +632,21 @@ mod test {
                 from_utf8(v1)
             );
         }
+    }
+
+    #[test]
+    fn defragment() {
+        setup();
+        let mut t = Trie::new();
+        t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
+        t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]);
+        t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]);
+        t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x00]);
+
+        t.commit();
+
+        let old_len = t.arena.len();
+        t.defragment();
+        assert!(old_len > t.arena.len());
     }
 }

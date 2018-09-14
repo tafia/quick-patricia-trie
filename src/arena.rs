@@ -12,6 +12,7 @@ impl Arena {
             pos: vec![0],
         }
     }
+
     pub fn with_capacity(data_cap: usize, item_cap: usize) -> Arena {
         let mut pos = Vec::with_capacity(item_cap + 1);
         pos.push(0);
@@ -20,6 +21,7 @@ impl Arena {
             pos,
         }
     }
+
     pub fn push(&mut self, data: &[u8]) -> usize {
         debug!(
             "pushing data {} (len {}) in arena (len {})",
@@ -29,6 +31,22 @@ impl Arena {
         );
         self.data.extend_from_slice(data);
         self.pos.push(self.data.len());
+        self.pos.len() - 1
+    }
+
+    pub fn defragment(&mut self, mut used: Vec<usize>) -> Vec<usize> {
+        used.sort_unstable();
+        used.dedup();
+        let mut new_arena = Arena::with_capacity(self.data.len(), self.pos.len());
+        let mut out = vec![0; self.pos.len()];
+        for i in used {
+            out[i] = new_arena.push(&self[i]);
+        }
+        *self = new_arena;
+        out
+    }
+
+    pub fn len(&self) -> usize {
         self.pos.len() - 1
     }
 }
