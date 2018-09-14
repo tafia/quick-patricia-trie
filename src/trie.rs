@@ -190,6 +190,7 @@ impl Trie {
         self.execute_action(action, key, value, &path, arena)
     }
 
+    #[inline(always)]
     fn execute_action<A>(
         &mut self,
         action: Action,
@@ -243,14 +244,14 @@ impl Trie {
                 }
 
                 if offset > 0 {
-                    let branch_key = self.db.push_node(Node::Branch(branch));
+                    let branch_key = self.db.push_node(Node::Branch(Box::new(branch)));
                     let ext = Extension {
                         nibble: ext_left,
                         key: branch_key,
                     };
                     self.db.insert_node(key, Node::Extension(ext));
                 } else {
-                    self.db.insert_node(key, Node::Branch(branch));
+                    self.db.insert_node(key, Node::Branch(Box::new(branch)));
                 }
             }
             Action::Leaf(leaf, offset) => {
@@ -281,14 +282,14 @@ impl Trie {
                     branch.value = Some(leaf.value);
                 }
                 if offset > 0 {
-                    let branch_key = self.db.push_node(Node::Branch(branch));
+                    let branch_key = self.db.push_node(Node::Branch(Box::new(branch)));
                     let ext = Extension {
                         nibble: leaf_left,
                         key: branch_key,
                     };
                     self.db.insert_node(key, Node::Extension(ext));
                 } else {
-                    self.db.insert_node(key, Node::Branch(branch));
+                    self.db.insert_node(key, Node::Branch(Box::new(branch)));
                 }
             }
             Action::Root => {

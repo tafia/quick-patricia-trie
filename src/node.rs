@@ -8,7 +8,7 @@ use rlp::{DecoderError, Prototype, Rlp, RlpStream};
 #[derive(Debug)]
 pub enum Node {
     Empty,
-    Branch(Branch),
+    Branch(Box<Branch>),
     Leaf(Leaf),
     Extension(Extension),
 }
@@ -50,7 +50,7 @@ impl Node {
                 if !value.is_empty() {
                     branch.value = Some(arena.push(value.data()?));
                 }
-                Ok(Node::Branch(branch))
+                Ok(Node::Branch(Box::new(branch)))
             }
             Prototype::Data(0) => Ok(Node::Empty),
             _ => Err(DecoderError::Custom("Rlp is not valid.")),
