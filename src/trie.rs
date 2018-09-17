@@ -16,8 +16,8 @@ pub struct Trie {
 enum Action {
     Root,
     BranchKey(u8, Leaf),
-    Extension(Extension, usize),
-    Leaf(Leaf, usize),
+    Extension(Extension, u32),
+    Leaf(Leaf, u32),
 }
 
 impl Trie {
@@ -41,19 +41,20 @@ impl Trie {
         self.db.root(&self.arena)
     }
 
-    pub fn get<K: AsRef<[u8]>>(&self, path: K) -> Option<&[u8]> {
-        let data = path.as_ref();
+    /// Get value correspding to this path
+    pub fn get<K: AsRef<[u8]>>(&self, key: K) -> Option<&[u8]> {
+        let data = key.as_ref();
         let nibble = Nibble {
             data: 0,
             start: 0,
-            end: data.len() * 2,
+            end: data.len() as u32 * 2,
         };
         let data = &[data];
         let arena = &ArenaSlice(data.as_ref());
         self.get_nibble(nibble, arena)
     }
 
-    /// Get the item corresponding to that nibble
+    /// Get the item corresponding to that key
     fn get_nibble<A>(&self, mut path: Nibble, arena: &A) -> Option<&[u8]>
     where
         A: ::std::ops::Index<usize, Output = [u8]>,
@@ -95,6 +96,7 @@ impl Trie {
         }
     }
 
+    /// Insert a (key, value)
     pub fn insert<K: AsRef<[u8]>, V: AsRef<[u8]>>(&mut self, key: K, value: V) -> Option<&[u8]> {
         let key = key.as_ref();
         let value = value.as_ref();
@@ -103,7 +105,7 @@ impl Trie {
         let nibble = Nibble {
             data: 0,
             start: 0,
-            end: key.len() * 2,
+            end: key.len() as u32 * 2,
         };
         let leaf = Leaf { nibble, value: 1 };
         self.insert_leaf(leaf, arena)
@@ -150,7 +152,7 @@ impl Trie {
                         .position(|(u, v)| u != v);
                     if let Some(p) = pos {
                         debug!("extension doesn't start with path nor path starts with extension");
-                        break Action::Extension(extension.clone(), p);
+                        break Action::Extension(extension.clone(), p as u32);
                     } else {
                         debug!(
                             "path {} starts with extension {}",
@@ -170,7 +172,7 @@ impl Trie {
                         .position(|(u, v)| u != v);
                     if let Some(p) = pos {
                         debug!("leaf doesn't start with path nor path starts with leaf");
-                        break Action::Leaf(leaf.clone(), p);
+                        break Action::Leaf(leaf.clone(), p as u32);
                     } else if let Some(_right) = right {
                         debug!("path starts with leaf (right: {:?})", _right);
                         break Action::Leaf(leaf.clone(), leaf.nibble.len());
@@ -306,11 +308,6 @@ impl Trie {
 
     pub fn iter(&self) -> DFSIter {
         DFSIter::new(self)
-    }
-
-    /// Defragment the underlying database
-    pub fn defragment(&mut self) {
-        self.db.defragment(&mut self.arena);
     }
 }
 
@@ -632,21 +629,5 @@ mod test {
                 from_utf8(v1)
             );
         }
-    }
-
-    #[test]
-    fn defragment() {
-        setup();
-        let mut t = Trie::new();
-        t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
-        t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]);
-        t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]);
-        t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x00]);
-
-        t.commit();
-
-        let old_len = t.arena.len();
-        t.defragment();
-        assert!(old_len > t.arena.len());
     }
 }

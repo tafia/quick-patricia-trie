@@ -44,22 +44,6 @@ impl Arena {
         );
         self.data[self.pos[index - 1]..self.pos[index]].copy_from_slice(data);
     }
-
-    pub fn defragment(&mut self, mut used: Vec<usize>) -> Vec<usize> {
-        used.sort_unstable();
-        used.dedup();
-        let mut new_arena = Arena::with_capacity(self.data.len(), self.pos.len());
-        let mut out = vec![0; self.pos.len()];
-        for i in used {
-            out[i] = new_arena.push(&self[i]);
-        }
-        *self = new_arena;
-        out
-    }
-
-    pub fn len(&self) -> usize {
-        self.pos.len() - 1
-    }
 }
 
 impl ::std::ops::Index<usize> for Arena {

@@ -4,8 +4,8 @@ use std::ops::Index;
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Nibble {
     pub data: usize,
-    pub start: usize,
-    pub end: usize,
+    pub start: u32,
+    pub end: u32,
 }
 
 impl Nibble {
@@ -15,12 +15,12 @@ impl Nibble {
         Nibble {
             data,
             start: 0,
-            end: d.len() * 2,
+            end: d.len() as u32 * 2,
         }
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn len(&self) -> u32 {
         self.end - self.start
     }
 
@@ -31,15 +31,15 @@ impl Nibble {
         let data = &arena[self.data];
         data.iter()
             .flat_map(|b| Some(b >> 4).into_iter().chain(Some(b & 0x0F).into_iter()))
-            .take(self.end)
-            .skip(self.start)
+            .take(self.end as usize)
+            .skip(self.start as usize)
     }
 
     pub fn pop_front<A: Index<usize, Output = [u8]>>(&self, arena: &A) -> Option<(u8, Nibble)> {
         if self.len() == 0 {
             return None;
         }
-        let first = arena[self.data][self.start / 2];
+        let first = arena[self.data][self.start as usize / 2];
         let first = if self.start % 2 == 0 {
             first >> 4
         } else {
@@ -55,7 +55,7 @@ impl Nibble {
         ))
     }
 
-    pub fn split_at(&self, mut n: usize) -> (Self, Option<Self>) {
+    pub fn split_at(&self, mut n: u32) -> (Self, Option<Self>) {
         n += self.start;
         if n >= self.end {
             (self.clone(), None)
@@ -85,7 +85,7 @@ impl Nibble {
         A: Index<usize, Output = [u8]>,
     {
         let data = &self_arena[self.data];
-        let data = new_arena.push(&data[self.start / 2..]);
+        let data = new_arena.push(&data[self.start as usize / 2..]);
         let start = self.start % 2;
         let end = start + self.len();
         Nibble { data, start, end }
@@ -97,22 +97,22 @@ impl Nibble {
     {
         let len = self.len();
         let data = &arena[self.data];
-        let mut buf = Vec::with_capacity(len / 2 + 1);
+        let mut buf = Vec::with_capacity(len as usize / 2 + 1);
         match (self.start % 2, self.end % 2) {
             (0, 0) => {
                 buf.push(if is_leaf { 0x20 } else { 0 });
-                buf.extend_from_slice(&data[self.start / 2..self.end / 2]);
+                buf.extend_from_slice(&data[self.start as usize / 2..self.end as usize / 2]);
             }
             (1, 0) => {
-                buf.push(data[self.start / 2] & 0x0F | if is_leaf { 0x30 } else { 0x10 });
-                buf.extend_from_slice(&data[self.start / 2 + 1..self.end / 2]);
+                buf.push(data[self.start as usize / 2] & 0x0F | if is_leaf { 0x30 } else { 0x10 });
+                buf.extend_from_slice(&data[self.start as usize / 2 + 1..self.end as usize / 2]);
             }
             (0, 1) => {
-                buf.push(data[self.start / 2] >> 4 | if is_leaf { 0x30 } else { 0x10 });
+                buf.push(data[self.start as usize / 2] >> 4 | if is_leaf { 0x30 } else { 0x10 });
                 buf.extend(
                     data.windows(2)
-                        .take(self.end / 2)
-                        .skip(self.start / 2)
+                        .take(self.end as usize / 2)
+                        .skip(self.start as usize / 2)
                         .map(|w| w[0] << 4 | w[1] >> 4),
                 );
             }
@@ -120,8 +120,8 @@ impl Nibble {
                 buf.push(if is_leaf { 0x20 } else { 0 });
                 buf.extend(
                     data.windows(2)
-                        .take(self.end / 2)
-                        .skip(self.start / 2)
+                        .take(self.end as usize / 2)
+                        .skip(self.start as usize / 2)
                         .map(|w| w[0] << 4 | w[1] >> 4),
                 );
             }
@@ -143,7 +143,7 @@ impl Nibble {
                 Nibble {
                     data,
                     start: 2,
-                    end: bytes.len() * 2,
+                    end: bytes.len() as u32 * 2,
                 },
             ),
             0x10 => (
@@ -151,7 +151,7 @@ impl Nibble {
                 Nibble {
                     data,
                     start: 1,
-                    end: bytes.len() * 2,
+                    end: bytes.len() as u32 * 2,
                 },
             ),
             0x20 => (
@@ -159,7 +159,7 @@ impl Nibble {
                 Nibble {
                     data,
                     start: 2,
-                    end: bytes.len() * 2,
+                    end: bytes.len() as u32 * 2,
                 },
             ),
             0x30 => (
@@ -167,7 +167,7 @@ impl Nibble {
                 Nibble {
                     data,
                     start: 1,
-                    end: bytes.len() * 2,
+                    end: bytes.len() as u32 * 2,
                 },
             ),
             s => panic!("Cannot decode slice starting with {:X}", s),
@@ -218,7 +218,7 @@ mod test {
         let nibble = Nibble {
             data: idx,
             start: 0,
-            end: "test".len() * 2,
+            end: "test".len() as u32 * 2,
         };
         let (left, right) = nibble.split_at(4);
         assert_eq!(left, Nibble { end: 4, ..nibble });
