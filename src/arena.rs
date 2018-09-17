@@ -34,6 +34,17 @@ impl Arena {
         self.pos.len() - 1
     }
 
+    pub fn insert(&mut self, index: usize, data: &[u8]) {
+        debug!(
+            "inserting data {} (len {}) at position {} in arena (len {})",
+            self.pos.len(),
+            data.len(),
+            index,
+            self.data.len()
+        );
+        self.data[self.pos[index - 1]..self.pos[index]].copy_from_slice(data);
+    }
+
     pub fn defragment(&mut self, mut used: Vec<usize>) -> Vec<usize> {
         used.sort_unstable();
         used.dedup();

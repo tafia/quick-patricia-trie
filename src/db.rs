@@ -18,6 +18,7 @@ pub enum Index {
 pub struct Db {
     hash: HashMap<usize, Node>,
     memory: Vec<Node>,
+    available_hash_slots: Vec<usize>,
     empty: usize,
     root: Index,
 }
@@ -31,6 +32,7 @@ impl Db {
             hash,
             memory: Vec::new(),
             root: Index::Hash(idx),
+            available_hash_slots: Vec::new(),
             empty: idx,
         }
     }
@@ -65,6 +67,7 @@ impl Db {
                     self.root = Index::Memory(len);
                 }
                 debug!("hash {} moved to memory {}", hash, len);
+                self.available_hash_slots.push(hash);
                 *key = Index::Memory(len);
                 self.memory.push(node);
                 self.memory.get_mut(len)
@@ -143,7 +146,12 @@ impl Db {
         };
 
         if let Some(hash) = hash {
-            let hash_idx = arena.push(hash.as_ref());
+            let hash_idx = if let Some(hash_idx) = self.available_hash_slots.pop() {
+                arena.insert(hash_idx, hash.as_ref());
+                hash_idx
+            } else {
+                arena.push(hash.as_ref())
+            };
             self.hash.insert(hash_idx, node);
             *index = Index::Hash(hash_idx);
         } else {
