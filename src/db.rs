@@ -103,17 +103,24 @@ impl Db {
     }
 
     /// Commit all the in memory nodes into hash db
-    pub fn commit(&mut self, arena: &mut Arena) {
+    pub fn commit(&mut self, arena: &mut Arena) -> Vec<(usize, usize)> {
+        let mut hashed = Vec::with_capacity(self.memory.len());
         if let Index::Hash(_) = self.root {
-            return;
+            return hashed;
         }
         let mut index = self.root;
-        self.commit_node(&mut index, arena);
+        self.commit_node(&mut index, arena, &mut hashed);
         self.memory.clear();
         self.root = index;
+        hashed
     }
 
-    fn commit_node(&mut self, index: &mut Index, arena: &mut Arena) {
+    fn commit_node(
+        &mut self,
+        index: &mut Index,
+        arena: &mut Arena,
+        hashed: &mut Vec<(usize, usize)>,
+    ) {
         let mut node = match *index {
             Index::Hash(_) => return,
             Index::Memory(i) => mem::replace(&mut self.memory[i], Node::Empty),
@@ -124,13 +131,13 @@ impl Db {
             Node::Branch(ref mut branch) => {
                 for k in &mut branch.keys {
                     if let Some(ref mut k) = k {
-                        self.commit_node(k, arena);
+                        self.commit_node(k, arena, hashed);
                     }
                 }
                 branch.encoded(arena)
             }
             Node::Extension(ref mut ext) => {
-                self.commit_node(&mut ext.key, arena);
+                self.commit_node(&mut ext.key, arena, hashed);
                 ext.encoded_or_empty(arena, self.empty)
             }
             Node::Empty => self.empty,
@@ -153,11 +160,10 @@ impl Db {
                 arena.push(hash.as_ref())
             };
             self.hash.insert(hash_idx, node);
+            hashed.push((hash_idx, encoded_idx));
             *index = Index::Hash(hash_idx);
         } else {
-            // technically there is no need to save it in the database as
-            // we can directly decode it. On the other hand, it is simpler
-            // to manage this way for the moment.
+            // there is no need to save it in the database as we can directly decode it
             *index = Index::Hash(encoded_idx);
             self.hash.insert(encoded_idx, node);
         }

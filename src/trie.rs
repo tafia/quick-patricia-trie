@@ -3,6 +3,7 @@ use db::{Db, Index};
 use iter::DFSIter;
 use nibbles::Nibble;
 use node::{Branch, Extension, Leaf, Node};
+use std::cmp::min;
 use std::mem;
 
 /// A patricia trie
@@ -21,10 +22,119 @@ enum Action {
 }
 
 impl Trie {
+    /// Creates a new `Trie`
     pub fn new() -> Self {
         let mut arena = Arena::new();
         let db = Db::new(&mut arena);
         Trie { arena, db }
+    }
+
+    /// Import values from an external source
+    pub fn import<F: Fn(&[u8]) -> Option<Vec<u8>>>(&mut self, get: F) {
+        if let Index::Hash(h) = self.db.root_index() {
+            self.import_root(get, h);
+        }
+    }
+
+    fn import_root<F: Fn(&[u8]) -> Option<Vec<u8>>>(&mut self, get: F, root: usize) {
+        self.commit();
+        let mut stack = vec![root];
+
+        while let Some(key) = stack.pop() {
+            debug!("Searching key {:?}", key);
+            let node = match get(&self.arena[key])
+                .and_then(|v| Node::try_from_encoded(&v, &mut self.arena))
+            {
+                None => return,
+                Some(node) => node,
+            };
+
+            match node {
+                Node::Branch(ref branch) => {
+                    stack.extend(branch.keys.iter().filter_map(|k| match k {
+                        Some(Index::Hash(h)) => Some(h),
+                        _ => None,
+                    }));
+                }
+                Node::Extension(ref extension) => {
+                    if let Index::Hash(h) = extension.key {
+                        stack.push(h);
+                    }
+                }
+                _ => (),
+            }
+
+            // insert this node
+            self.db.insert_node(Index::Hash(key), node);
+        }
+    }
+
+    /// Import values from an external source and starting with prefix (or less)
+    pub fn import_prefix<F>(&mut self, get: F, prefix: &[u8])
+    where
+        F: Fn(&[u8]) -> Option<Vec<u8>>,
+    {
+        self.commit();
+
+        let mut key = if let Index::Hash(h) = self.db.root_index() {
+            h
+        } else {
+            return;
+        };
+
+        // create a nibble out of the prefix
+        let data = &[prefix];
+        let arena = &ArenaSlice(data.as_ref());
+        let mut nibble = Nibble {
+            data: 0,
+            start: 0,
+            end: prefix.len() as u32 * 2,
+        };
+
+        // advance until we find node with this prefix
+        while nibble.len() > 0 {
+            let node = match get(&self.arena[key])
+                .and_then(|v| Node::try_from_encoded(&v, &mut self.arena))
+            {
+                None => return,
+                Some(node) => node,
+            };
+
+            match node {
+                Node::Branch(ref branch) => {
+                    if let Some((p, n)) = nibble.pop_front(arena) {
+                        if let Some(k) = branch.keys[p as usize] {
+                            if let Index::Hash(h) = k {
+                                key = h;
+                                nibble = n;
+                            }
+                        }
+                    }
+                }
+                Node::Extension(ref extension) => {
+                    let min = min(nibble.len(), extension.nibble.len());
+                    let (left, right) = nibble.split_at(min);
+                    let (eleft, _) = extension.nibble.split_at(min);
+                    if left.eq(&eleft, arena, &self.arena) {
+                        if let Index::Hash(h) = extension.key {
+                            key = h;
+                        }
+                        if let Some(r) = right {
+                            nibble = r;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                _ => (),
+            }
+
+            // insert this node
+            self.db.insert_node(Index::Hash(key), node);
+        }
+
+        // import the subtrie
+        self.import_root(get, key);
     }
 
     pub(crate) fn db(&self) -> &Db {
@@ -303,7 +413,21 @@ impl Trie {
     }
 
     pub fn commit(&mut self) {
-        self.db.commit(&mut self.arena)
+        self.db.commit(&mut self.arena);
+    }
+
+    pub fn commit_into<'a, F, E>(&'a mut self, insert: F) -> Result<(), E>
+    where
+        F: Fn(&[(&'a [u8], &'a [u8])]) -> Result<(), E>,
+    {
+        let new_hashes = self.db.commit(&mut self.arena);
+        let arena = &self.arena;
+        let key_values = new_hashes
+            .into_iter()
+            .map(|(hash_idx, encoded_idx)| (&arena[hash_idx], &arena[encoded_idx]))
+            .collect::<Vec<_>>();
+
+        insert(&key_values)
     }
 
     pub fn iter(&self) -> DFSIter {
@@ -629,5 +753,30 @@ mod test {
                 from_utf8(v1)
             );
         }
+    }
+
+    #[test]
+    fn import() {
+        setup();
+        let mut t = Trie::new();
+        t.insert(&[0x01u8, 0x23], &[0x01u8, 0x23]);
+        assert_eq!(t.get(&[0x01, 0x23]), Some([0x01, 0x23].as_ref()));
+        t.insert(&[0xf1u8, 0x23], &[0xf1u8, 0x23]);
+        assert_eq!(t.get(&[0xf1, 0x23]), Some([0xf1, 0x23].as_ref()));
+        t.insert(&[0x81u8, 0x23], &[0x81u8, 0x23]);
+        assert_eq!(
+            t.get(&[0x81, 0x23]),
+            Some([0x81, 0x23].as_ref()),
+            "\n{:?}",
+            t
+        );
+        assert_eq!(
+            t.root().unwrap(),
+            &*trie_root::<KeccakHasher, _, _, _>(vec![
+                (vec![0x01u8, 0x23], vec![0x01u8, 0x23]),
+                (vec![0x81u8, 0x23], vec![0x81u8, 0x23]),
+                (vec![0xf1u8, 0x23], vec![0xf1u8, 0x23]),
+            ])
+        );
     }
 }
